@@ -6,7 +6,7 @@
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import os
-from constants import VALID_RANKS
+from constants.valid_rank import VALID_RANKS
 import json
 from dotenv import load_dotenv
 
