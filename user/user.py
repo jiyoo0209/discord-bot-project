@@ -13,7 +13,7 @@ class UserCog(commands.Cog):
         self.bot = bot
 
     @app_commands.command(name='가입', description='새로운 길드원 추가')
-    async def register_user(interaction: discord.Interaction, user_name: str):
+    async def register_user(self, interaction: discord.Interaction, user_name: str):
         try:
             success, message = add_user(user_name)
 
