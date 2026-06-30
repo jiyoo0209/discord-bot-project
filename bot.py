@@ -38,7 +38,7 @@ async def admin_command(interaction: discord.Interaction):
     await interaction.response.send_message('관리자입니다!')
 
 async def main():
-    token = os.getenv('DISCORD_TOKEN'))
+    token = os.getenv('DISCORD_TOKEN')
     async with bot:
         await bot.load_extension('roleSetting.roleSetting')
         # 나중에 다른 파일도 이렇게 추가
