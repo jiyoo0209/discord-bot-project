@@ -7,10 +7,6 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-class RoleSetting(commands.Cog):
-    def __init__(self, bot):
-        self.bot = bot
-
 ROLE_IDS = {
     1: 1414413421566234755,  # 길드마스터
     2: 1414416424826572951,  # 서브마스터
@@ -24,6 +20,10 @@ def has_role_level(interaction: discord.Interaction, level: int) -> bool:
     target_id = ROLE_IDS[level]
     user_role_ids = [role.id for role in interaction.user.roles]
     return target_id in user_role_ids
+
+class RoleSetting(commands.Cog):
+    def __init__(self, bot):
+        self.bot = bot
 
     @app_commands.command(name='명예설정', description='명예길드원 인원수를 설정')
     @app_commands.describe(숫자='설정할 명예길드원 수 (예: 3)')
