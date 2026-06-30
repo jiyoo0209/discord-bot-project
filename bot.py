@@ -45,5 +45,3 @@ async def main():
 
         # bot 실행
         bot.run(os.getenv('DISCORD_TOKEN'))
-
-asyncio.run(main())
