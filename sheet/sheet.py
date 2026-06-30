@@ -6,11 +6,13 @@
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import os
-from constants.valid_rank import VALID_RANKS
 import json
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# 유효 등급 목록
+VALID_RANKS = ['길마', '서마', '명예', '우수', '일반']
 
 # Google Sheets 인증
 def get_sheet():
