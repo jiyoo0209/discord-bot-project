@@ -28,3 +28,26 @@ def get_worksheet(sheet_name):
     except:
         worksheet = spreadsheet.add_worksheet(title=sheet_name, row=500, cols=10)
     return worksheet
+
+# user_rank 시트에 rank_name 찾아서 rank_cnt 업데이트
+def update_rank_cnt(rank_name, new_cnt):
+    try:
+        worksheet = get_worksheet('user_rank')
+
+        # rank_name으로 데이터 찾기
+        find_data = worksheet.find(rank_name)
+
+        if find_data:
+            worksheet.update_cell(cell.row, 2, new_cnt)
+            msg = f'{rank_name}등급의 수가 {new_cnt}로 업데이트 되었습니다!'
+            print(msg)
+            return True, msg
+        else:
+            err_msg = f'{rank_name}을(를) 찾을 수 없습니다'
+            print(err_msg)
+            return False, err_msg
+
+    except Exception as e:
+        err_msg = f'오류: {e}'
+        print(err_msg)
+        return False, err_msg
