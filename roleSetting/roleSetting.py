@@ -6,8 +6,8 @@
 import discord
 from discord import app_commands
 from discord.ext import commands
-
-from sheet.sheet import update_rank_cnt, VALID_RANKS
+from constants import VALID_RANKS
+from sheet.sheet import update_rank_cnt
 
 # 등급 선택지 (VALID_RANKS에서 자동 생성 -> 등급 추가하면 세 명령어 모두 반영)
 RANK_CHOICES = [app_commands.Choice(name=r, value=r) for r in VALID_RANKS]
