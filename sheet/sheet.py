@@ -38,7 +38,7 @@ def update_rank_cnt(rank_name, new_cnt):
         find_data = worksheet.find(rank_name)
 
         if find_data:
-            worksheet.update_cell(cell.row, 2, new_cnt)
+            worksheet.update_cell(find_data.row, 2, new_cnt)
             msg = f'{rank_name}등급의 수가 {new_cnt}로 업데이트 되었습니다!'
             print(msg)
             return True, msg
