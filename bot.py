@@ -46,3 +46,5 @@ async def main():
 
         # bot 실행
         await bot.start(token)
+
+asyncio.run(main())
