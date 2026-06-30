@@ -44,6 +44,4 @@ async def main():
         # await bot.load_extension('dashboard')
 
         # bot 실행
-        bot.run(os.getenv('DISCORD_TOKEN'))
-
-asyncio.run(main())
+        await bot.start(os.getenv('DISCORD_TOKEN'))
