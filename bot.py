@@ -39,7 +39,7 @@ async def admin_command(interaction: discord.Interaction):
 
 async def main():
     async with bot:
-        await bot.load_extension('roleSetting')
+        await bot.load_extension('roleSetting.roleSetting')
         # 나중에 다른 파일도 이렇게 추가
         # await bot.load_extension('dashboard')
 
