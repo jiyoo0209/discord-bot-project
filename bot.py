@@ -41,6 +41,7 @@ async def main():
     token = os.getenv('DISCORD_TOKEN')
     async with bot:
         await bot.load_extension('roleSetting.roleSetting')
+        await bot.load_extension('user.user')
         # 나중에 다른 파일도 이렇게 추가
         # await bot.load_extension('dashboard')
 
