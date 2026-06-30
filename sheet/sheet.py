@@ -51,3 +51,27 @@ def update_rank_cnt(rank_name, new_cnt):
         err_msg = f'오류: {e}'
         print(err_msg)
         return False, err_msg
+
+# 길드원 추가
+def add_user(user_name):
+    msg = ''
+    try:
+        worksheet = get_worksheet('user')
+
+        # 길드원 중복 검사
+        cell = worksheet.find(user_name)
+        if cell:
+            msg = f'{user_name}은(는) 이미 존재합니다.'
+            print(msg)
+            return False, msg
+
+        # 새 길드원 추가
+        worksheet.append_row([user_name, 0, '일반'])
+        msg = f'{user_name}이(가) 성공적으로 추가되었습니다.'
+        print(msg)
+        return True, msg
+
+    except Exception as e:
+        msg = f'오류: {e}'
+        print(msg)
+        return False, msg
