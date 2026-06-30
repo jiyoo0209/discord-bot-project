@@ -1,6 +1,7 @@
 import discord
 from discord.ext import commands
 import os
+import asyncio
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -36,4 +37,13 @@ async def admin_command(interaction: discord.Interaction):
 
     await interaction.response.send_message('관리자입니다!')
 
-bot.run(os.getenv('DISCORD_TOKEN'))
+async def main():
+    async with bot:
+        await bot.load_extension('roleSetting')
+        # 나중에 다른 파일도 이렇게 추가
+        # await bot.load_extension('dashboard')
+
+        # bot 실행
+        bot.run(os.getenv('DISCORD_TOKEN'))
+
+asyncio.run(main())
