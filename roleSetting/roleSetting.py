@@ -23,6 +23,12 @@ ROLE_IDS = {
     9: 1414416713134641254,  # 일반
 }
 
+def has_role_level(interaction: discord.Interaction, level: int) -> bool:
+    """명령어를 친 사람이 해당 등급의 역할을 가지고 있는지 확인"""
+    target_id = ROLE_IDS[level]
+    user_role_ids = [role.id for role in interaction.user.roles]
+    return target_id in user_role_ids
+
 class RoleSetting(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
