@@ -7,6 +7,8 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from sheet.sheet import update_rank_cnt
+
 ROLE_IDS = {
     1: 1414413421566234755,  # 길드마스터
     2: 1414416424826572951,  # 서브마스터
@@ -35,6 +37,7 @@ class RoleSetting(commands.Cog):
             )
             return
 
+        update_rank_cnt('명예', 숫자);
         await interaction.response.send_message(
             f'명예길드원이 {숫자}명으로 설정되었습니다!'
         )
@@ -48,7 +51,8 @@ class RoleSetting(commands.Cog):
                 '길드마스터만 사용 가능합니다!', ephemeral=True
             )
             return
-
+        
+        update_rank_cnt('우수', 숫자);
         await interaction.response.send_message(
             f'우수길드원이 {숫자}명으로 설정되었습니다!'
         )
