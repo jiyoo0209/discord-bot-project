@@ -11,6 +11,14 @@ from sheet.sheet import update_rank_cnt, VALID_RANKS
 # 등급 선택지 (VALID_RANKS에서 자동 생성 -> 등급 추가하면 세 명령어 모두 반영)
 RANK_CHOICES = [app_commands.Choice(name=r, value=r) for r in VALID_RANKS]
 
+ROLE_IDS = {
+    1: 1414413421566234755,  # 길드마스터
+    2: 1414416424826572951,  # 서브마스터
+    3: 1414417235132284980,  # 명예
+    4: 1414416934858133566,  # 우수
+    9: 1414416713134641254,  # 일반
+}
+
 def has_role_level(interaction: discord.Interaction, level: int) -> bool:
     """명령어를 친 사람이 해당 등급의 역할을 가지고 있는지 확인"""
     target_id = ROLE_IDS[level]
@@ -49,6 +57,10 @@ class RoleSetting(commands.Cog):
         success, message = update_rank_cnt(등급.value, -숫자, 'delta')
         await interaction.response.send_message(message, ephemeral=not success)
 
+    '''
+    2026.07.01 : 주석처리
+    등급 설정은 증감으로 사용 - 필요하면 추후 개발 예정
+
     @app_commands.command(name='설정', description='등급 인원수를 설정')
     @app_commands.describe(등급='대상 등급', 숫자='설정할 인원 수 (예: 5)')
     @app_commands.choices(등급=RANK_CHOICES)
@@ -62,7 +74,7 @@ class RoleSetting(commands.Cog):
 
         success, message = update_rank_cnt(등급.value, 숫자, 'set')
         await interaction.response.send_message(message, ephemeral=not success)
-
+    '''
 
 async def setup(bot):
     await bot.add_cog(RoleSetting(bot))

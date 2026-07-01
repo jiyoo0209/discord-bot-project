@@ -45,6 +45,8 @@ def update_rank_cnt(rank_name, amount, mode='set'):
 
         # rank_name으로 데이터 찾기 (A열)
         find_data = worksheet.find(rank_name, in_column=1)
+        # 일반 길드원 데이터 찾기
+        find_general_data = worksheet.find('일반', in_column=1)
 
         if not find_data:
             err_msg = f'{rank_name}을(를) 찾을 수 없습니다'
@@ -57,10 +59,16 @@ def update_rank_cnt(rank_name, amount, mode='set'):
             if not ok:
                 return False, current
             new_cnt = max(0, current + amount)
+            success, general_cnt = get_rank_cnt('일반')
+            # 명예/우수 증감할 때 일반도 같이 반대로 증감
+            if success:
+                general_new_cnt = max(0, general_cnt - amount)
         else:
             new_cnt = amount
 
+        # worksheet에 업데이트 (명예/우수, 일반)
         worksheet.update_cell(find_data.row, 2, new_cnt)
+        worksheet.update_cell(find_general_data.row, 2, general_new_cnt)
         msg = f'{rank_name}등급 인원이 {new_cnt}명으로 설정되었습니다!'
         print(msg)
         return True, msg
