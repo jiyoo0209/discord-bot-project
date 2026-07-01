@@ -157,6 +157,11 @@ def add_user(user_name):
 # user 시트에서 해당 길드원을 탈퇴 처리 (행 삭제 X, rank_name -> 탈퇴)
 def remove_user(user_name):
     try:
+        worksheet = get_worksheet('user')
+        rank_worksheet = get_worksheet('user_rank')
+
+        # A열에서 닉네임 찾기
+        find_data = worksheet.find(user_name, in_column=1)
 
         if not find_data:
             msg = f'{user_name}님을 찾을 수 없습니다'
@@ -179,16 +184,13 @@ def remove_user(user_name):
             user_point_worksheet.delete_rows([cell.row for cell in find_point_data])
         
         # user_rank에서 해당 길드원 등급(rank_name) cnt 감소
-        worksheet = get_worksheet('user')
-        rank_worksheet = get_worksheet('user_rank')
-
-        # A열에서 닉네임 찾기
-        find_data = worksheet.find(user_name, in_column=1)
-
         # 해당 유저의 등급(rank_name) 가져오기
         user_rank_name = worksheet.cell(find_data.row, 3).value
         find_rank_data = rank_worksheet.find(user_rank_name, in_column=1)
-        rank_worksheet.update_cell(find_rank_data.row, 2, max(0, int(rank_worksheet.cell(find_rank_data.row, 2).value) - 1))
+
+        if find_rank_data:
+            current_cnt = int(rank_worksheet.cell(find_rank_data.row, 2).value or 0)
+            rank_worksheet.update_cell(find_rank_data.row, 2, max(0, current_cnt - 1))
 
         # user 시트에서 해당 길드원 행 삭제
         worksheet.delete_rows([find_data.row])
