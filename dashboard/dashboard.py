@@ -146,10 +146,13 @@ def build_embed(today=None, records=None):
     wk_start, wk_end = get_week_range(today)
 
     embed = discord.Embed(title='길퀘 대시보드', color=0x5865F2)
-    embed.add_field(name='길퀘 남은 횟수', value=s1, inline=False)
-    embed.add_field(name='누적 경고', value=s2, inline=False)
-    embed.add_field(name='이번주 길퀘포인트 순위', value=s3, inline=False)
-    embed.add_field(name='다음 달 명예/우수 예상', value=s4, inline=False)
+    # 2x2 배치: inline=True 로 나란히, 2칸마다 빈 칸(\u200b)으로 줄바꿈 강제
+    embed.add_field(name='길퀘 남은 횟수', value=s1, inline=True)
+    embed.add_field(name='누적 경고', value=s2, inline=True)
+    embed.add_field(name='\u200b', value='\u200b', inline=True)      # 첫 줄 끝 (줄바꿈)
+    embed.add_field(name='이번주 길퀘포인트 순위', value=s3, inline=True)
+    embed.add_field(name='다음 달 명예/우수 예상', value=s4, inline=True)
+    embed.add_field(name='\u200b', value='\u200b', inline=True)      # 둘째 줄 끝
     embed.set_footer(text=f'집계 주간 {wk_start} ~ {wk_end} (월~일)')
     return embed
 
