@@ -108,7 +108,7 @@ def section_ranking(rank_of, week_points):
             prev = pt
         badge = medals.get(place, f'{place}위')
         lines.append(f'{badge} {n} ({pt})')
-    return '\n'.join(lines) or '- 기록 없음'
+    return '\n\n'.join(lines) or '- 기록 없음'
 
 def section_forecast(rank_of, refl_points, rank_cnt):
     '''4. 다음 달 명예/우수 예상 — reflection_yn=N 포인트 합, 길마/서마 제외.
