@@ -14,6 +14,7 @@ class UserCog(commands.Cog):
         self.bot = bot
 
     @app_commands.command(name='가입', description='새로운 길드원 추가')
+    @app_commands.describe(user_name='테런 닉네임', discord_user='대상 디스코드 유저')
     async def register_user(self, interaction: discord.Interaction, user_name: str, discord_user: discord.Member):
         try:
             if not (has_role_level(interaction, 1) or has_role_level(interaction, 2)):

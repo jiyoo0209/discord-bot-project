@@ -144,7 +144,7 @@ def add_user(user_name):
 
         success, general_cnt = get_rank_cnt('일반')
         general_new_cnt = max(0, general_cnt + 1)
-        worksheet.update_cell(find_general_data.row, 2, general_new_cnt)
+        rank_worksheet.update_cell(find_general_data.row, 2, general_new_cnt)
         msg = f'{user_name}님이 길드원으로 추가되었습니다!'
         print(msg)
         return True, msg
