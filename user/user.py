@@ -6,7 +6,7 @@
 import discord
 from discord import app_commands
 from discord.ext import commands
-from sheet.sheet import add_user
+from sheet.sheet import add_user, remove_user
 from roleSetting.roleSetting import has_role_level, ROLE_IDS
 
 class UserCog(commands.Cog):
@@ -16,9 +16,9 @@ class UserCog(commands.Cog):
     @app_commands.command(name='가입', description='새로운 길드원 추가')
     @app_commands.describe(user_name='테런 닉네임', discord_user='대상 디스코드 유저')
     async def register_user(self, interaction: discord.Interaction, user_name: str, discord_user: discord.Member):
+        # 처리 중 메시지 표시
+        await interaction.response.defer(ephemeral=True)
         try:
-            await interaction.response.defer(ephemeral=True)  # 처리 중 메시지 표시
-
             # 길마/서마만 사용 가능
             if not (has_role_level(interaction, 1) or has_role_level(interaction, 2)):
                 await interaction.response.send_message('길마/서마만 사용 가능합니다!', ephemeral=True)
@@ -33,7 +33,25 @@ class UserCog(commands.Cog):
             await interaction.followup.send(message, ephemeral=True)
 
         except Exception as e:
-            await interaction.response.send_message(f'오류: {e}', ephemeral=True)
+            await interaction.followup.send(f'오류: {e}', ephemeral=True)
+
+    @app_commands.command(name='탈퇴', description='길드원 탈퇴(삭제)')
+    @app_commands.describe(user_name='테런 닉네임')
+    async def delete_user(self, interaction: discord.Interaction, user_name: str):
+        # 처리 중 메시지 표시
+        await interaction.response.defer(ephemeral=True)
+        try:
+            # 길마/서마만 사용 가능
+            if not (has_role_level(interaction, 1) or has_role_level(interaction, 2)):
+                await interaction.response.send_message('길마/서마만 사용 가능합니다!', ephemeral=True)
+                return
+            success, message = remove_user(user_name)
+
+            # 메세지 출력
+            await interaction.followup.send(message, ephemeral=True)
+
+        except Exception as e:
+            await interaction.followup.send(f'오류: {e}', ephemeral=True)
 
 async def setup(bot):
     await bot.add_cog(UserCog(bot))
