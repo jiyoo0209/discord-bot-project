@@ -42,8 +42,8 @@ async def main():
     async with bot:
         await bot.load_extension('roleSetting.roleSetting')
         await bot.load_extension('user.user')
+        await bot.load_extension('dashboard.dashboard')
         # 나중에 다른 파일도 이렇게 추가
-        # await bot.load_extension('dashboard')
 
         # bot 실행
         await bot.start(token)
