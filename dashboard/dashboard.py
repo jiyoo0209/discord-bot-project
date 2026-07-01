@@ -159,9 +159,8 @@ class Dashboard(commands.Cog):
 
     @app_commands.command(name='대시보드', description='길퀘 현황 대시보드 조회')
     async def dashboard(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)  # 처리 중 메시지 표시
         try:
-            await interaction.response.defer(ephemeral=True)  # 처리 중 메시지 표시
-
             await interaction.followup.send(embed=build_embed())
         except Exception as e:
             await interaction.followup.send(f'오류: {e}', ephemeral=True)
