@@ -7,16 +7,25 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 from sheet.sheet import add_user
+from roleSetting.roleSetting import has_role_level, ROLE_IDS
 
 class UserCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
     @app_commands.command(name='가입', description='새로운 길드원 추가')
-    async def register_user(self, interaction: discord.Interaction, user_name: str):
+    async def register_user(self, interaction: discord.Interaction, user_name: str, discord_user: discord.Member):
         try:
+            if not (has_role_level(interaction, 1) or has_role_level(interaction, 2)):
+                await interaction.response.send_message('길마/서마만 사용 가능합니다!', ephemeral=True)
+                return
             success, message = add_user(user_name)
 
+            # 입장대기 삭제
+            await discord_user.remove_roles(interaction.guild.get_role(ROLE_IDS[0]))
+            # 일반 역할 부여
+            await discord_user.add_roles(interaction.guild.get_role(ROLE_IDS[9]))
+            # 메세지 출력
             await interaction.response.send_message(message, ephemeral=True)
 
         except Exception as e:

@@ -103,22 +103,15 @@ def get_rank_cnt(rank_name):
 # user 시트에 신규 길드원 추가 (탈퇴자는 재가입 처리)
 def add_user(user_name):
     try:
+        # 유저 시트
         worksheet = get_worksheet('user')
+        # 유저 랭크 시트
+        rank_worksheet = get_worksheet('user_rank')
 
         # A열에서 닉네임 검색
         find_data = worksheet.find(user_name, in_column=1)
 
         if find_data:
-            current_rank = worksheet.cell(find_data.row, 3).value
-
-            # 재가입: 과거 경고 이력 남기기 위해 일단 주석처리. 경고 현황도 초기화하고 싶다면 아래의 코드 사용
-            if current_rank == '탈퇴':
-                # worksheet.update_cell(find_data.row, 2, 0)       # warning_point
-                worksheet.update_cell(find_data.row, 3, '일반')  # rank_name
-                msg = f'{user_name}님이 재가입 처리되었습니다!'
-                print(msg)
-                return True, msg
-
             # 활동 중인 길드원이면 중복
             msg = f'{user_name}님은 이미 등록되어 있습니다'
             print(msg)
@@ -126,6 +119,13 @@ def add_user(user_name):
 
         # 신규: [user_name, warning_point=0, rank_name=일반]
         worksheet.append_row([user_name, 0, '일반'])
+        
+        # 일반 길드원 수 조회 및 +1
+        find_general_data = worksheet.find('일반', in_column=1)
+
+        success, general_cnt = get_rank_cnt('일반')
+        general_new_cnt = max(0, general_cnt + 1)
+        worksheet.update_cell(find_general_data.row, 2, general_new_cnt)
         msg = f'{user_name}님이 길드원으로 추가되었습니다!'
         print(msg)
         return True, msg

@@ -17,6 +17,7 @@ ROLE_IDS = {
     3: 1414417235132284980,  # 명예
     4: 1414416934858133566,  # 우수
     9: 1414416713134641254,  # 일반
+    0: 1414436501114060811,  # 입장대기
 }
 
 def has_role_level(interaction: discord.Interaction, level: int) -> bool:
