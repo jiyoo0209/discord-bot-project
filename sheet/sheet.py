@@ -14,6 +14,27 @@ load_dotenv()
 # 유효 등급 목록
 VALID_RANKS = ['길마', '서마', '명예', '우수', '일반']
 
+
+def _to_int_count(value):
+    if isinstance(value, list):
+        if not value:
+            return 0
+        value = value[0]
+
+    if value is None:
+        return 0
+
+    if isinstance(value, str):
+        value = value.strip()
+        if not value:
+            return 0
+        try:
+            return int(value)
+        except ValueError:
+            return 0
+
+    return int(value)
+
 # Google Sheets 인증
 def get_sheet():
     scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
@@ -72,18 +93,20 @@ def update_rank_cnt(rank_name, amount, mode='set'):
             print(err_msg)
             return False, err_msg
 
+        amount_value = _to_int_count(amount)
+
         # 증감 모드: 현재값 + amount
         if mode == 'delta':
             ok, current = get_rank_cnt(rank_name)
             if not ok:
                 return False, current
-            new_cnt = max(0, current + amount)
+            new_cnt = max(0, current + amount_value)
             success, general_cnt = get_rank_cnt('일반')
             # 명예/우수 증감할 때 일반도 같이 반대로 증감
             if success:
-                general_new_cnt = max(0, general_cnt - amount)
+                general_new_cnt = max(0, general_cnt - amount_value)
         else:
-            new_cnt = amount
+            new_cnt = amount_value
 
         # worksheet에 업데이트 (명예/우수, 일반)
         worksheet.update_cell(find_data.row, 2, new_cnt)
@@ -107,7 +130,7 @@ def get_rank_cnt(rank_name):
 
         if find_data:
             value = worksheet.cell(find_data.row, 2).value
-            cnt = int(value) if value else 0
+            cnt = _to_int_count(value)
             return True, cnt
         else:
             err_msg = f'{rank_name}을(를) 찾을 수 없습니다'
@@ -189,7 +212,7 @@ def remove_user(user_name):
         find_rank_data = rank_worksheet.find(user_rank_name, in_column=1)
 
         if find_rank_data:
-            current_cnt = int(rank_worksheet.cell(find_rank_data.row, 2).value or 0)
+            current_cnt = _to_int_count(rank_worksheet.cell(find_rank_data.row, 2).value)
             rank_worksheet.update_cell(find_rank_data.row, 2, max(0, current_cnt - 1))
 
         # user 시트에서 해당 길드원 행 삭제
