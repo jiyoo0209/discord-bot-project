@@ -17,6 +17,9 @@ class UserCog(commands.Cog):
     @app_commands.describe(user_name='테런 닉네임', discord_user='대상 디스코드 유저')
     async def register_user(self, interaction: discord.Interaction, user_name: str, discord_user: discord.Member):
         try:
+            await interaction.response.defer(ephemeral=True)  # 처리 중 메시지 표시
+
+            # 길마/서마만 사용 가능
             if not (has_role_level(interaction, 1) or has_role_level(interaction, 2)):
                 await interaction.response.send_message('길마/서마만 사용 가능합니다!', ephemeral=True)
                 return
@@ -27,7 +30,7 @@ class UserCog(commands.Cog):
             # 일반 역할 부여
             await discord_user.add_roles(interaction.guild.get_role(ROLE_IDS[9]))
             # 메세지 출력
-            await interaction.response.send_message(message, ephemeral=True)
+            await interaction.followup.send(message, ephemeral=True)
 
         except Exception as e:
             await interaction.response.send_message(f'오류: {e}', ephemeral=True)
