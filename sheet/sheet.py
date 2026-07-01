@@ -7,6 +7,7 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import os
 import json
+from datetime import datetime, timezone, timedelta
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -14,26 +15,8 @@ load_dotenv()
 # 유효 등급 목록
 VALID_RANKS = ['길마', '서마', '명예', '우수', '일반']
 
-
-def _to_int_count(value):
-    if isinstance(value, list):
-        if not value:
-            return 0
-        value = value[0]
-
-    if value is None:
-        return 0
-
-    if isinstance(value, str):
-        value = value.strip()
-        if not value:
-            return 0
-        try:
-            return int(value)
-        except ValueError:
-            return 0
-
-    return int(value)
+# 한국 표준시 (KST, UTC+9 고정 · DST 없음) — 서버 시간과 무관하게 오늘 날짜 계산
+KST = timezone(timedelta(hours=9))
 
 # Google Sheets 인증
 def get_sheet():
@@ -71,6 +54,52 @@ def get_dashboard_records():
         print(f'오류: {e}')
         return [], [], [], []
 
+# user_point 시트에 점수 일괄 기록 (평면 로그 - 맨 아래 append)
+#   user_names    : list[str] 대상 닉네임 목록
+#   point         : int 점수
+#   capture_yn    : 'Y'/'N' (점령 여부, 기본 N)
+#   reflection_yn : 'Y'/'N' (명예우수 계산 반영 여부, 기본 N)
+#   date          : 'YYYYMMDD' 문자열, 미지정 시 KST 기준 오늘
+# 반환: (bool, message). 미등록/탈퇴 닉네임은 제외하고 나머지만 기록.
+def add_points(user_names, point, capture_yn='N', reflection_yn='N', date=None):
+    try:
+        if not user_names:
+            return False, '길드원을 한 명 이상 입력하세요'
+
+        if date is None:
+            date = datetime.now(KST).strftime('%Y%m%d')
+
+        # user 시트 기준으로 활동 중인 길드원만 검증 (탈퇴 제외)
+        user_rows = get_worksheet('user').get_all_values()[1:]
+        active = {
+            r[0]: (r[2] if len(r) > 2 else '')
+            for r in user_rows if r and r[0]
+        }
+
+        valid, invalid = [], []
+        for name in user_names:
+            if name in active and active[name] != '탈퇴':
+                valid.append(name)
+            else:
+                invalid.append(name)
+
+        if not valid:
+            return False, f'기록할 유효한 길드원이 없습니다. 확인: {", ".join(invalid)}'
+
+        # Insert
+        new_rows = [[name, date, point, capture_yn, reflection_yn] for name in valid]
+        get_worksheet('user_point').append_rows(new_rows, value_input_option='USER_ENTERED')
+
+        msg = f'{len(valid)}명 {point}점 기록 완료: {", ".join(valid)}'
+        if invalid:
+            msg += f'\n 미등록/탈퇴로 제외: {", ".join(invalid)}'
+        print(msg)
+        return True, msg
+
+    except Exception as e:
+        err_msg = f'오류: {e}'
+        print(err_msg)
+        return False, err_msg
 
 # user_rank 시트의 rank_cnt 업데이트 (mode: 'set' 덮어쓰기 / 'delta' 증감)
 def update_rank_cnt(rank_name, amount, mode='set'):
@@ -93,20 +122,18 @@ def update_rank_cnt(rank_name, amount, mode='set'):
             print(err_msg)
             return False, err_msg
 
-        amount_value = _to_int_count(amount)
-
         # 증감 모드: 현재값 + amount
         if mode == 'delta':
             ok, current = get_rank_cnt(rank_name)
             if not ok:
                 return False, current
-            new_cnt = max(0, current + amount_value)
+            new_cnt = max(0, current + amount)
             success, general_cnt = get_rank_cnt('일반')
             # 명예/우수 증감할 때 일반도 같이 반대로 증감
             if success:
-                general_new_cnt = max(0, general_cnt - amount_value)
+                general_new_cnt = max(0, general_cnt - amount)
         else:
-            new_cnt = amount_value
+            new_cnt = amount
 
         # worksheet에 업데이트 (명예/우수, 일반)
         worksheet.update_cell(find_data.row, 2, new_cnt)
@@ -130,7 +157,7 @@ def get_rank_cnt(rank_name):
 
         if find_data:
             value = worksheet.cell(find_data.row, 2).value
-            cnt = _to_int_count(value)
+            cnt = int(value) if value else 0
             return True, cnt
         else:
             err_msg = f'{rank_name}을(를) 찾을 수 없습니다'
@@ -181,7 +208,6 @@ def add_user(user_name):
 def remove_user(user_name):
     try:
         worksheet = get_worksheet('user')
-        rank_worksheet = get_worksheet('user_rank')
 
         # A열에서 닉네임 찾기
         find_data = worksheet.find(user_name, in_column=1)
@@ -191,32 +217,8 @@ def remove_user(user_name):
             print(msg)
             return False, msg
 
-        # 탈퇴 처리 시작 ===============================
-        # 길퀘 불가 사유 TB 에서 해당 길드원 기록 삭제
-        quest_deny_worksheet = get_worksheet('quest_deny_reason')
-        find_deny_data = quest_deny_worksheet.findall(user_name, in_column=1)
-
-        if find_deny_data:
-            quest_deny_worksheet.delete_rows([cell.row for cell in find_deny_data])
-
-        # 길퀘포인트 TB 에서 해당 길드원 기록 삭제
-        user_point_worksheet = get_worksheet('user_point')
-        find_point_data = user_point_worksheet.findall(user_name, in_column=1)
-        
-        if find_point_data:
-            user_point_worksheet.delete_rows([cell.row for cell in find_point_data])
-        
-        # user_rank에서 해당 길드원 등급(rank_name) cnt 감소
-        # 해당 유저의 등급(rank_name) 가져오기
-        user_rank_name = worksheet.cell(find_data.row, 3).value
-        find_rank_data = rank_worksheet.find(user_rank_name, in_column=1)
-
-        if find_rank_data:
-            current_cnt = _to_int_count(rank_worksheet.cell(find_rank_data.row, 2).value)
-            rank_worksheet.update_cell(find_rank_data.row, 2, max(0, current_cnt - 1))
-
-        # user 시트에서 해당 길드원 행 삭제
-        worksheet.delete_rows([find_data.row])
+        # rank_name(C열, 3번째)을 탈퇴로 변경
+        worksheet.update_cell(find_data.row, 3, '탈퇴')
 
         msg = f'{user_name}님이 탈퇴 처리되었습니다'
         print(msg)
