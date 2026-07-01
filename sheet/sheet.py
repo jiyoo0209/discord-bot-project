@@ -32,6 +32,25 @@ def get_worksheet(sheet_name):
         worksheet = spreadsheet.add_worksheet(title=sheet_name, row=500, cols=10)
     return worksheet
 
+# 대시보드용: 스프레드시트 1회 연결로 4개 시트 전체 값 조회 (헤더 제외)
+# 반환: (users, points, denies, ranks) — 각각 list[list[str]]
+#   users  = [user_name, warning_point, rank_name]
+#   points = [user_name, date, point, capture_yn, reflection_yn]
+#   denies = [user_name, date, reason]
+#   ranks  = [rank_name, rank_cnt]
+def get_dashboard_records():
+    try:
+        spreadsheet = get_sheet()
+        users  = spreadsheet.worksheet('user').get_all_values()[1:]
+        points = spreadsheet.worksheet('user_point').get_all_values()[1:]
+        denies = spreadsheet.worksheet('quest_deny_reason').get_all_values()[1:]
+        ranks  = spreadsheet.worksheet('user_rank').get_all_values()[1:]
+        return users, points, denies, ranks
+    except Exception as e:
+        print(f'오류: {e}')
+        return [], [], [], []
+
+
 # user_rank 시트의 rank_cnt 업데이트 (mode: 'set' 덮어쓰기 / 'delta' 증감)
 def update_rank_cnt(rank_name, amount, mode='set'):
     try:
