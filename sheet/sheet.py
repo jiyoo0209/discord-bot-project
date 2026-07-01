@@ -58,16 +58,21 @@ def get_dashboard_records():
 #   user_names    : list[str] 대상 닉네임 목록
 #   point         : int 점수
 #   capture_yn    : 'Y'/'N' (점령 여부, 기본 N)
-#   reflection_yn : 'Y'/'N' (명예우수 계산 반영 여부, 기본 N)
 #   date          : 'YYYYMMDD' 문자열, 미지정 시 KST 기준 오늘
 # 반환: (bool, message). 미등록/탈퇴 닉네임은 제외하고 나머지만 기록.
-def add_points(user_names, point, capture_yn='N', reflection_yn='N', date=None):
+def add_points(user_names, point, capture_yn='N', date=None):
     try:
         if not user_names:
             return False, '길드원을 한 명 이상 입력하세요'
 
         if date is None:
             date = datetime.now(KST).strftime('%Y%m%d')
+            
+        # 점령 반영(capture_yn='Y')은 토요일만 허용
+        if capture_yn == 'Y':
+            weekday = datetime.strptime(date, '%Y%m%d').weekday()  # 월=0 … 토=5, 일=6
+            if weekday != 5:
+                return False, f'점령 반영은 토요일만 가능합니다 (입력 날짜: {date})'
 
         # user 시트 기준으로 활동 중인 길드원만 검증 (탈퇴 제외)
         user_rows = get_worksheet('user').get_all_values()[1:]
@@ -87,7 +92,7 @@ def add_points(user_names, point, capture_yn='N', reflection_yn='N', date=None):
             return False, f'기록할 유효한 길드원이 없습니다. 확인: {", ".join(invalid)}'
 
         # Insert
-        new_rows = [[name, date, point, capture_yn, reflection_yn] for name in valid]
+        new_rows = [[name, date, point, capture_yn, 'N'] for name in valid]
         get_worksheet('user_point').append_rows(new_rows, value_input_option='USER_ENTERED')
 
         msg = f'{len(valid)}명 {point}점 기록 완료: {", ".join(valid)}'
