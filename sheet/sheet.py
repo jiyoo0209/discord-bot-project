@@ -140,7 +140,7 @@ def add_user(user_name):
         worksheet.append_row([user_name, 0, '일반'])
         
         # 일반 길드원 수 조회 및 +1
-        find_general_data = worksheet.find('일반', in_column=1)
+        find_general_data = rank_worksheet.find('일반', in_column=1)
 
         success, general_cnt = get_rank_cnt('일반')
         general_new_cnt = max(0, general_cnt + 1)
