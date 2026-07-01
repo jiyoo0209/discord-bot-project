@@ -150,7 +150,7 @@ def build_embed(today=None, records=None):
     embed.add_field(name='누적 경고', value=s2, inline=False)
     embed.add_field(name='이번주 길퀘포인트 순위', value=s3, inline=False)
     embed.add_field(name='다음 달 명예/우수 예상', value=s4, inline=False)
-    embed.set_footer(text=f'집계 주간 {wk_start} ~ {wk_end} (월~토)')
+    embed.set_footer(text=f'집계 주간 {wk_start} ~ {wk_end} (월~일)')
     return embed
 
 class Dashboard(commands.Cog):
