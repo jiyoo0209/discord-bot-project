@@ -334,19 +334,19 @@ class Dashboard(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @app_commands.command(name='대시보드', description='길퀘 현황 대시보드 조회')
-    async def dashboard(self, interaction: discord.Interaction):
-        # 시트 4장 조회는 3초를 넘길 수 있어 먼저 defer, 블로킹 I/O 는 스레드로 분리
-        # ephemeral — 조회 결과가 채널을 지저분하게 하지 않도록 본인만 보이게
-        # 버튼 '대시보드'와 동일한 ◀▶ 카드로 통일 (지역 import 로 panel↔dashboard 순환 방지)
-        await interaction.response.defer(ephemeral=True)
-        try:
-            from panel.panel import DashboardCard
-            records = await asyncio.to_thread(get_dashboard_records)
-            await interaction.followup.send(view=DashboardCard(0, records), ephemeral=True)
-        except Exception as e:
-            await interaction.followup.send(f'오류: {e}', ephemeral=True)
-
+    #@app_commands.command(name='대시보드', description='길퀘 현황 대시보드 조회')
+    #async def dashboard(self, interaction: discord.Interaction):
+    #    # 시트 4장 조회는 3초를 넘길 수 있어 먼저 defer, 블로킹 I/O 는 스레드로 분리
+    #    # ephemeral — 조회 결과가 채널을 지저분하게 하지 않도록 본인만 보이게
+    #    # 버튼 '대시보드'와 동일한 ◀▶ 카드로 통일 (지역 import 로 panel↔dashboard 순환 방지)
+    #    await interaction.response.defer(ephemeral=True)
+    #    try:
+    #        from panel.panel import DashboardCard
+    #        records = await asyncio.to_thread(get_dashboard_records)
+    #        await interaction.followup.send(view=DashboardCard(0, records), ephemeral=True)
+    #    except Exception as e:
+    #        await interaction.followup.send(f'오류: {e}', ephemeral=True)
+  
     # 이 채널에 대시보드를 상주시키고 1시간마다 자동 갱신 (배치가 이 메시지를 edit)
     #   /대시보드 와 동일한 ◀▶ 페이지 카드로 게시 — 임베드/카드 두 모양이 섞여 혼란스럽지 않게 통일.
     #   ⚠️ Discord 는 보낸 뒤 일반 메시지 ↔ V2 카드 전환(edit)이 불가 → 이전 설치분은 삭제 후 새로 게시.
