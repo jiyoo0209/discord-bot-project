@@ -32,8 +32,8 @@ def get_week_range(today=None):
     if today is None:
         today = date.today()
     monday = today - timedelta(days=today.weekday())
-    saturday = monday + timedelta(days=5)   # 월(weekday 0) + 5 = 토요일 (월~토 집계)
-    return int(monday.strftime('%Y%m%d')), int(saturday.strftime('%Y%m%d'))
+    sunday = monday + timedelta(days=6)   # 월(weekday 0) + 6 = 일요일 (월~일 집계)
+    return int(monday.strftime('%Y%m%d')), int(sunday.strftime('%Y%m%d'))
 
 
 def get_month_range(today=None):
@@ -89,7 +89,7 @@ def _resolve_summary_spec(spec):
         a, b = spec.split('~')
         return (int(a), int(b)), f'{a} ~ {b}'
     st, en = get_week_range()
-    return None, f'이번 주  {st} ~ {en}  (월~토)'
+    return None, f'이번 주  {st} ~ {en}  (월~일)'
 
 # ======================================================================
 # 데이터
@@ -226,7 +226,7 @@ def build_embed(today=None, records=None):
     embed.add_field(name='누적 경고', value=_cap(s2), inline=False)
     embed.add_field(name='이번주 길퀘포인트 순위', value=_cap(s3), inline=False)
     embed.add_field(name='다음 달 명예/우수 예상', value=_cap(s4), inline=False)
-    embed.set_footer(text=f'집계 주간 {wk_start} ~ {wk_end} (월~토)')
+    embed.set_footer(text=f'집계 주간 {wk_start} ~ {wk_end} (월~일)')
     return embed
 
 # ======================================================================
@@ -348,18 +348,32 @@ class Dashboard(commands.Cog):
             await interaction.followup.send(f'오류: {e}', ephemeral=True)
 
     # 이 채널에 대시보드를 상주시키고 1시간마다 자동 갱신 (배치가 이 메시지를 edit)
+    #   /대시보드 와 동일한 ◀▶ 페이지 카드로 게시 — 임베드/카드 두 모양이 섞여 혼란스럽지 않게 통일.
+    #   ⚠️ Discord 는 보낸 뒤 일반 메시지 ↔ V2 카드 전환(edit)이 불가 → 이전 설치분은 삭제 후 새로 게시.
     @app_commands.command(name='대시보드설치', description='(길마/서마) 이 채널에 자동 갱신 대시보드 설치')
     async def install_dashboard(self, interaction: discord.Interaction):
         if not (has_role(interaction, '길마') or has_role(interaction, '서마')):
             await interaction.response.send_message('길마/서마만 사용 가능합니다!', ephemeral=True)
             return
         await interaction.response.defer(ephemeral=True)
+        # 이전 설치 메시지 정리 (고아 방지 — 구버전 embed 설치분 포함)
+        old_ch = get_setting(interaction.guild.id, '_dash_ch')
+        old_msg = get_setting(interaction.guild.id, '_dash_msg')
+        if old_ch and old_msg:
+            try:
+                ch = (interaction.guild.get_channel(int(old_ch))
+                      or await self.bot.fetch_channel(int(old_ch)))
+                old = await ch.fetch_message(int(old_msg))
+                await old.delete()
+            except Exception:
+                pass
         try:
-            embed = await asyncio.to_thread(build_embed)
-            msg = await interaction.channel.send(embed=embed)
+            from panel.panel import DashboardCard   # 지역 import — panel↔dashboard 순환 방지
+            records = await asyncio.to_thread(get_dashboard_records)
+            msg = await interaction.channel.send(view=DashboardCard(0, records, live=True))
         except discord.Forbidden:
             await interaction.followup.send(
-                '이 채널에 메시지/임베드를 보낼 권한이 없습니다. 봇 권한을 확인하세요.', ephemeral=True)
+                '이 채널에 메시지를 보낼 권한이 없습니다. 봇 권한을 확인하세요.', ephemeral=True)
             return
         except Exception as e:
             await interaction.followup.send(f'설치 실패: {e}', ephemeral=True)
@@ -367,7 +381,7 @@ class Dashboard(commands.Cog):
         set_setting(interaction.guild.id, '_dash_ch', interaction.channel.id)
         set_setting(interaction.guild.id, '_dash_msg', msg.id)
         await interaction.followup.send(
-            '대시보드를 설치했습니다. 1시간마다 자동 갱신됩니다.', ephemeral=True)
+            '페이지 대시보드를 설치했습니다. ◀▶ 로 넘겨 보고, 1시간마다 자동 갱신됩니다.', ephemeral=True)
 
     @app_commands.command(name='요약', description='(길마/서마) 시트 요약 탭 갱신 + 헤더 보기 좋게 정리')
     async def summary(self, interaction: discord.Interaction):

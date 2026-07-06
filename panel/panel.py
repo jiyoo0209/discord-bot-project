@@ -76,19 +76,22 @@ class DashRow(discord.ui.ActionRow):
 
 
 # 대시보드 페이지 = Components V2 카드. records 없으면(dispatch 등록용) 버튼만 구성(I/O 없음).
+#   live=True: /대시보드설치 로 채널에 상주하는 카드 (배치가 매시간 edit) → '자동 갱신' 표기.
+#   live=False: /대시보드·버튼의 ephemeral 카드 (배치가 못 건드림) → 표기 안 함.
 class DashboardCard(discord.ui.LayoutView):
-    def __init__(self, page: int = 0, records=None):
+    def __init__(self, page: int = 0, records=None, live: bool = False):
         super().__init__(timeout=None)
         if records is None:
             self.add_item(discord.ui.Container(DashRow()))
             return
         emoji, title, body = _dash_body(page, records)
+        tail = ' · 1시간마다 자동 갱신' if live else ''
         self.add_item(discord.ui.Container(
             discord.ui.TextDisplay(f'## {emoji} {title}'),
             discord.ui.TextDisplay(body or '-'),
             discord.ui.Separator(),
             DashRow(),
-            discord.ui.TextDisplay(f'-# {page % len(PAGES) + 1} / {len(PAGES)} · 1시간마다 자동 갱신'),
+            discord.ui.TextDisplay(f'-# {page % len(PAGES) + 1} / {len(PAGES)}{tail}'),
             accent_colour=discord.Colour(0x5865F2),
         ))
 
@@ -101,7 +104,9 @@ async def _flip_card(interaction: discord.Interaction, delta: int):
     try:
         await interaction.response.defer()  # 컴포넌트 업데이트 defer
         records = await asyncio.to_thread(get_dashboard_records)
-        await interaction.edit_original_response(view=DashboardCard(new, records))
+        # 상주(설치형) 카드는 공개 메시지, ephemeral 카드는 본인용 — footer 문구 유지
+        live = not interaction.message.flags.ephemeral
+        await interaction.edit_original_response(view=DashboardCard(new, records, live))
     except Exception as e:
         _panel_page[mid] = cur   # 실패 시 되돌림
         print(f'[panel] flip 오류: {e}')

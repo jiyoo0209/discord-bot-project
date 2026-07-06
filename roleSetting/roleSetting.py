@@ -151,8 +151,9 @@ class RoleSetting(commands.Cog):
         await interaction.response.send_message(message, ephemeral=not success)
     '''
 
-    # 개인 등급 변경 (가입 시 일반 → 명예/우수/길마/서마 등). 인원수도 자동 반영.
-    @app_commands.command(name='등급변경', description='길드원 개인 등급 변경 (인원수 자동 반영)')
+    # 개인 등급 변경 (가입 시 일반 → 명예/우수/길마/서마 등).
+    #   user_rank(rank_cnt=다음 달 정원)는 건드리지 않음 — 정원은 /증가·/감소 로만 관리.
+    @app_commands.command(name='등급변경', description='길드원 개인 등급 변경')
     @app_commands.describe(닉네임='대상 테런 닉네임', 등급='새 등급')
     @app_commands.choices(등급=RANK_CHOICES)
     @app_commands.autocomplete(닉네임=user_autocomplete)

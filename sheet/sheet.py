@@ -225,8 +225,6 @@ def add_user(user_name, discord_id=None):
     try:
         # 유저 시트
         worksheet = get_worksheet('user')
-        # 유저 랭크 시트
-        rank_worksheet = get_worksheet('user_rank')
 
         did = str(discord_id) if discord_id is not None else ''
 
@@ -259,11 +257,7 @@ def add_user(user_name, discord_id=None):
             #   RAW = 사용자 입력 닉을 문자 그대로 저장 (=..., @... 수식 인젝션 차단)
             worksheet.append_row([user_name, 0, '일반', did], value_input_option='RAW')
 
-        # 일반 길드원 수 +1
-        find_general = rank_worksheet.find('일반', in_column=1)
-        if find_general:
-            general_cur = _int(rank_worksheet.cell(find_general.row, 2).value)
-            rank_worksheet.update_cell(find_general.row, 2, max(0, general_cur + 1))
+        # ⚠️ user_rank(rank_cnt)는 안 건드림 — 정원 값. 전체 인원은 user 탭 파생 수식이 자동 반영.
 
         try:
             _sort_users()   # 새 길드원(일반)을 등급순 위치로 정돈
@@ -386,11 +380,12 @@ def init_sheets():
             vals = [['rank_name', 'rank_cnt']]
         seeded = False
         if len(vals) <= 1:  # 헤더만 = 등급 없음
-            start = len(vals) + 1  # 첫 데이터 행 (헤더 1행이면 2)
             rank_ws.append_rows([['길마', 0], ['서마', 0], ['명예', 0], ['우수', 0], ['일반', 0]],
                                 value_input_option='RAW')
-            # 전체 = 방금 넣은 5개 등급 합 (하드코딩 대신 실제 행 범위로)
-            rank_ws.append_row(['전체', f'=SUM(B{start}:B{start + 4})'], value_input_option='USER_ENTERED')
+            # 전체 = user 탭 파생 '현재 활동 인원' (길마~일반 rank_cnt 는 다음 달 '정원'이라 합산하면 안 됨).
+            #   COUNTIF "<>탈퇴" 는 빈칸도 세므로 COUNTA - COUNTIF(탈퇴) 로 계산.
+            rank_ws.append_row(['전체', '=COUNTA(user!C2:C)-COUNTIF(user!C2:C,"탈퇴")'],
+                               value_input_option='USER_ENTERED')
             seeded = True
         return True, ('시트 준비 완료 — 4탭 확인'
                       + (' + 등급 6종 시드' if seeded else ' (user_rank 등급 이미 있음, 유지)'))
@@ -417,15 +412,10 @@ def remove_user(user_name):
             print(msg)
             return False, msg
 
-        # 1) 해당 유저의 등급 인원수 -1 (명세 #6-2)
-        current_rank = worksheet.cell(find_data.row, 3).value
-        rank_worksheet = get_worksheet('user_rank')
-        find_rank = rank_worksheet.find(current_rank, in_column=1) if current_rank else None
-        if find_rank:
-            rank_cur = _int(rank_worksheet.cell(find_rank.row, 2).value)
-            rank_worksheet.update_cell(find_rank.row, 2, max(0, rank_cur - 1))
+        # ⚠️ user_rank(rank_cnt)는 안 건드림 — 정원 값 (다음 달 목표 인원, /증가·/감소 로만 관리).
+        #   전체 인원은 user 탭 파생 수식이 행 삭제를 자동 반영.
 
-        # 2) user 행 삭제 + user_point / quest_deny_reason 관련 행 전부 삭제 (명세 #6-3)
+        # user 행 삭제 + user_point / quest_deny_reason 관련 행 전부 삭제 (명세 #6-3)
         worksheet.delete_rows(find_data.row)
         _delete_rows_by_name(get_worksheet('user_point'), user_name)
         _delete_rows_by_name(get_worksheet('quest_deny_reason'), user_name)
@@ -499,7 +489,7 @@ def add_points(names, point, capture_yn, point_date, reflection_yn='N'):
         return False, [], names
 
 
-# quest_deny_reason INSERT — 일요일 차단, 이번주(월~토) 1회 제한
+# quest_deny_reason INSERT — 일요일 차단(토요일까지 등록), 이번주(월~일) 1회 제한
 @_locked
 def add_deny_reason(user_name, reason):
     try:
@@ -634,7 +624,7 @@ def update_user(user_name, rank_name):
         return False, err_msg
 
 
-# 개인 등급 변경 + 인원수 자동 반영 (/등급변경). old 등급 -1, new 등급 +1 로 rank_cnt 정합 유지.
+# 개인 등급 변경 (/등급변경). rank_cnt(정원)는 변경하지 않는다.
 @_locked
 def change_user_rank(user_name, new_rank):
     try:
@@ -657,15 +647,8 @@ def change_user_rank(user_name, new_rank):
         # 개인 rank_name 변경
         user_ws.update_cell(find.row, 3, new_rank)
 
-        # 인원수 정합: old -1, new +1 (전체/미존재 등급은 건너뜀)
-        rank_ws = get_worksheet('user_rank')
-        for rank_name, delta in ((old_rank, -1), (new_rank, +1)):
-            if not rank_name or rank_name == '전체':
-                continue
-            fr = rank_ws.find(rank_name, in_column=1)
-            if fr:
-                cur = _int(rank_ws.cell(fr.row, 2).value)
-                rank_ws.update_cell(fr.row, 2, max(0, cur + delta))
+        # ⚠️ user_rank(rank_cnt)는 건드리지 않는다 — rank_cnt 는 '다음 달 목표 정원'이라
+        #   실제 등급 변경과 무관하게 /증가·/감소 로만 관리한다 (LO 확정, 2026-07-06).
 
         try:
             _sort_users()   # 등급이 바뀌었으니 시트를 등급순으로 정돈 (LO: 뒤죽박죽 방지)

@@ -1,5 +1,5 @@
 '''
-* 주간(월~토) 경계 · 날짜 헬퍼 — 여러 모듈이 공유
+* 주간(월~일) 경계 · 날짜 헬퍼 — 여러 모듈이 공유
 * 날짜는 시트 저장 형식과 동일하게 int YYYYMMDD 로 다룬다.
 '''
 from datetime import date, timedelta
@@ -15,12 +15,12 @@ def today_int():
 
 
 def week_range(d=None):
-    '''이번 주 월요일~토요일 (YYYYMMDD int) 튜플'''
+    '''이번 주 월요일~일요일 (YYYYMMDD int) 튜플 — 일요일 포인트도 주간 집계에 포함 (LO 확정)'''
     if d is None:
         d = date.today()
     monday = d - timedelta(days=d.weekday())      # weekday: 월=0 … 일=6
-    saturday = monday + timedelta(days=5)
-    return _to_int(monday), _to_int(saturday)
+    sunday = monday + timedelta(days=6)
+    return _to_int(monday), _to_int(sunday)
 
 
 def this_saturday(d=None):

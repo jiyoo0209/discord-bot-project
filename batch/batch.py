@@ -57,30 +57,35 @@ class Batch(commands.Cog):
     async def _before_midnight(self):
         await self.bot.wait_until_ready()
 
-    async def _edit_stored(self, guild, ch_key, msg_key, embed_factory):
-        '''저장된 (채널,메시지) 를 찾아 embed 만 교체 (버튼 등 컴포넌트는 유지)'''
-        ch_id = get_setting(guild.id, ch_key)
-        msg_id = get_setting(guild.id, msg_key)
-        if not ch_id or not msg_id:
-            return
-        try:
-            channel = guild.get_channel(int(ch_id)) or await self.bot.fetch_channel(int(ch_id))
-            message = await channel.fetch_message(int(msg_id))
-            embed = await embed_factory(message)
-            await message.edit(embed=embed)
-        except discord.NotFound:
-            # 채널/메시지가 삭제됨 → 등록 해제해서 매시간 404 반복 안 나게
-            set_setting(guild.id, ch_key, '')
-            set_setting(guild.id, msg_key, '')
-            print(f'[batch] {msg_key} 대상 삭제됨 → 등록 해제 (다시 /패널설치·/셋업 하면 재등록)')
-        except Exception as e:
-            print(f'[batch] 갱신 실패({msg_key}, guild {guild.id}): {e}')
-
-    # 설치된 정적 대시보드(/대시보드설치) 를 최신 데이터로 edit
+    # 설치된 상주 대시보드(/대시보드설치) 를 최신 데이터로 edit.
+    #   신버전 = V2 페이지 카드(현재 페이지 유지) / 구버전 설치분 = embed 폴백
+    #   (Discord 는 보낸 뒤 일반 메시지 ↔ V2 전환이 안 되므로 모양별로 맞춰 edit 해야 함).
     async def _refresh_dashboards(self):
+        from panel.panel import DashboardCard, current_page   # 지역 import — 순환 방지
+        from sheet.sheet import get_dashboard_records
+        records = None
         for guild in self.bot.guilds:
-            await self._edit_stored(guild, '_dash_ch', '_dash_msg',
-                                    lambda m: asyncio.to_thread(build_embed))
+            ch_id = get_setting(guild.id, '_dash_ch')
+            msg_id = get_setting(guild.id, '_dash_msg')
+            if not ch_id or not msg_id:
+                continue
+            try:
+                channel = guild.get_channel(int(ch_id)) or await self.bot.fetch_channel(int(ch_id))
+                message = await channel.fetch_message(int(msg_id))
+                if message.flags.components_v2:
+                    if records is None:   # 여러 길드여도 시트 조회는 1회
+                        records = await asyncio.to_thread(get_dashboard_records)
+                    await message.edit(view=DashboardCard(current_page(message), records, live=True))
+                else:
+                    embed = await asyncio.to_thread(build_embed)
+                    await message.edit(embed=embed)
+            except discord.NotFound:
+                # 채널/메시지가 삭제됨 → 등록 해제해서 매시간 404 반복 안 나게
+                set_setting(guild.id, '_dash_ch', '')
+                set_setting(guild.id, '_dash_msg', '')
+                print(f'[batch] 대시보드 대상 삭제됨 → 등록 해제 (다시 /대시보드설치 하면 재등록)')
+            except Exception as e:
+                print(f'[batch] 대시보드 갱신 실패(guild {guild.id}): {e}')
 
     # 일요일 1회: 점령 미참여자 경고 차감. 이번 주(월요일 int)를 가드키로 중복 실행 방지.
     async def _weekly_warning(self):
@@ -96,7 +101,8 @@ class Batch(commands.Cog):
             set_setting('_global', '_warn_week', week_id)
         print(f'[batch] {msg}')
 
-    # 일요일 자정 1회: 지난 주(월~토) 길퀘 미완료자에게 셋업 채널로 자동 리마인드 (주 1회 가드)
+    # 일요일 자정 1회: 이번 주(월~일, 마지막 날 시작 시점) 길퀘 미완료자에게 셋업 채널로 자동 리마인드
+    #   주간이 일요일까지라 '오늘(일요일) 안에 마저 하라'는 의미가 됨 (주 1회 가드)
     async def _sunday_reminder(self):
         week_id = week_range()[0]
         if get_setting('_global', '_remind_week') == week_id:
