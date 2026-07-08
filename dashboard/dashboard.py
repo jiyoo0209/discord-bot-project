@@ -13,6 +13,7 @@ from collections import defaultdict
 from sheet.sheet import get_dashboard_records, get_worksheet, _write_lock
 from roleSetting.roleSetting import has_role
 from config.guild_config import set_setting, get_setting
+from util.dates import kst_today
 
 # ---- 설정값 ----
 WEEKLY_QUEST_LIMIT = 2            # 주간 길퀘(=capture_yn N) 최대 횟수
@@ -30,7 +31,7 @@ def _int(v, default=0):
 
 def get_week_range(today=None):
     if today is None:
-        today = date.today()
+        today = kst_today()
     monday = today - timedelta(days=today.weekday())
     sunday = monday + timedelta(days=6)   # 월(weekday 0) + 6 = 일요일 (월~일 집계)
     return int(monday.strftime('%Y%m%d')), int(sunday.strftime('%Y%m%d'))
@@ -39,7 +40,7 @@ def get_week_range(today=None):
 def get_month_range(today=None):
     '''이번 달 1일 ~ 말일 (YYYYMMDD int)'''
     if today is None:
-        today = date.today()
+        today = kst_today()
     first = today.replace(day=1)
     nxt = date(today.year + (today.month == 12), (today.month % 12) + 1, 1)   # 다음 달 1일
     last = nxt - timedelta(days=1)
@@ -52,7 +53,7 @@ def _range_date(tok):
     if len(digits) == 8:
         y, m, d = int(digits[:4]), int(digits[4:6]), int(digits[6:8])
     elif len(digits) == 4:
-        y, m, d = date.today().year, int(digits[:2]), int(digits[2:4])
+        y, m, d = kst_today().year, int(digits[:2]), int(digits[2:4])
     else:
         return None
     try:

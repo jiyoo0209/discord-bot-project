@@ -11,16 +11,15 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
-from datetime import time as dtime, timezone, timedelta
+from datetime import time as dtime
 
 from sheet.sheet import decrement_warnings_nonparticipants, get_incomplete_members
 from dashboard.dashboard import build_embed, WEEKLY_QUEST_LIMIT, write_summary_sheet
 from roleSetting.roleSetting import has_role
 from config.guild_config import get_setting, set_setting
-from util.dates import is_sunday, week_range
+from util.dates import is_sunday, week_range, KST
 
-# 리마인드는 시스템 타임존과 무관하게 **KST 00:00** 에 고정 발송 (tz-aware loop time)
-_KST = timezone(timedelta(hours=9))
+# 리마인드는 시스템 타임존과 무관하게 **KST 00:00** 에 고정 발송 (KST = util.dates 공용 tz)
 
 
 @app_commands.guild_only()
@@ -48,7 +47,7 @@ class Batch(commands.Cog):
         await self.bot.wait_until_ready()
 
     # 매일 KST 자정 정각 실행 — 일요일이면 지난 주 길퀘 미완료자 리마인드
-    @tasks.loop(time=dtime(hour=0, minute=0, tzinfo=_KST))
+    @tasks.loop(time=dtime(hour=0, minute=0, tzinfo=KST))
     async def midnight(self):
         if is_sunday():
             await self._sunday_reminder()
