@@ -49,10 +49,16 @@ def is_sunday(d=None):
 
 
 def is_saturday(d=None):
-    '''오늘이 토요일인가 — 주 후반 길퀘 미완료 리마인드 트리거'''
+    '''오늘이 토요일인가 '''
     if d is None:
         d = kst_today()
     return d.weekday() == 5
+
+def is_friday(d=None):
+    '''오늘이 금요일인가 — 주 후반 길퀘 미완료 리마인드 트리거'''
+    if d is None:
+        d = kst_today()
+    return d.weekday() == 4
 
 
 def parse_date_arg(s):
