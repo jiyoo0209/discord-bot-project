@@ -117,8 +117,8 @@ class Quest(commands.Cog):
         await interaction.followup.send(embed=embed, ephemeral=True)
 
 
-    # 이번주 길퀘 미완료자에게 공개 멘션 리마인드 (핑 울림 — 의도적 공개)
-    @app_commands.command(name='리마인드', description='이번주 길퀘 미완료자에게 리마인드')
+    # 이번주 길퀘 미완료자에게 공개 멘션 리마인드 + 개인 DM (핑 울림 — 의도적 공개)
+    @app_commands.command(name='리마인드', description='이번주 길퀘 미완료자에게 리마인드 (채널 멘션 + 개인 DM)')
     async def remind(self, interaction: discord.Interaction):
         if not (has_role(interaction, '길마') or has_role(interaction, '서마')):
             await interaction.response.send_message('길마/서마만 사용 가능합니다!', ephemeral=True)
@@ -143,6 +143,22 @@ class Quest(commands.Cog):
             else:
                 cur += ' ' + t
         await interaction.followup.send(cur, allowed_mentions=pings)
+        # 개인 DM 도 함께 발송 — 문구는 금요일 자정 배치(FRIDAY_DM)와 동일, 결과는 실행자에게만 표시
+        from batch.batch import FRIDAY_DM   # 지역 import — 순환 방지 (문구 단일 관리)
+        dm_ok = dm_fail = 0
+        for m in members:
+            if not m['discord_id']:
+                continue
+            try:
+                user = (interaction.client.get_user(int(m['discord_id']))
+                        or await interaction.client.fetch_user(int(m['discord_id'])))
+                await user.send(FRIDAY_DM.format(n=m['left']))
+                dm_ok += 1
+            except Exception as e:
+                dm_fail += 1
+                print(f"[remind] DM 실패({m['name']}): {e}")
+        note = f'📩 개인 DM 발송 — 성공 {dm_ok}명' + (f' / 실패 {dm_fail}명 (DM 차단 등)' if dm_fail else '')
+        await interaction.followup.send(note, ephemeral=True)
 
 
 async def setup(bot):
