@@ -21,7 +21,7 @@ from sheet.sheet import (
     get_user_status, get_user_by_discord, add_deny_reason, init_sheets, get_dashboard_records,
     add_user, add_points, list_active_users, change_user_rank, VALID_RANKS,
     calc_honor_excellent, get_incomplete_members, update_rank_cnt, get_spreadsheet_url,
-    decrement_warnings_nonparticipants,
+    process_weekly_warnings,
 )
 from roleSetting.roleSetting import has_role
 from config.guild_config import (
@@ -761,8 +761,8 @@ class _ManageRow2(discord.ui.ActionRow):
 
     @discord.ui.button(label='경고처리', style=discord.ButtonStyle.primary)
     async def warning(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer()   # /주간경고처리 와 동일 — 점령 미참여 경고 −1
-        ok, msg = await asyncio.to_thread(decrement_warnings_nonparticipants)
+        await interaction.response.defer()   # /주간경고처리 와 동일 — 지난 주 경고 정산(부여/차감)
+        ok, msg = await asyncio.to_thread(process_weekly_warnings, WEEKLY_QUEST_LIMIT)
         await interaction.edit_original_response(
             view=_result(msg[:3900], accent=discord.Colour.green() if ok else discord.Colour.red()))
 
