@@ -61,6 +61,30 @@ def is_friday(d=None):
     return d.weekday() == 4
 
 
+def is_monday(d=None):
+    '''오늘이 월요일인가 — 지난 주 경고 정산 배치 트리거'''
+    if d is None:
+        d = kst_today()
+    return d.weekday() == 0
+
+
+def last_week_range(d=None):
+    '''저번 주 월요일~일요일 (YYYYMMDD int) 튜플 — 월요일 경고 정산의 집계 구간'''
+    if d is None:
+        d = kst_today()
+    last_monday = d - timedelta(days=d.weekday() + 7)
+    last_sunday = last_monday + timedelta(days=6)
+    return _to_int(last_monday), _to_int(last_sunday)
+
+
+def last_saturday(d=None):
+    '''저번 주 토요일 (YYYYMMDD int) — 점령(capture_yn=Y) 참여 판정용'''
+    if d is None:
+        d = kst_today()
+    last_monday = d - timedelta(days=d.weekday() + 7)
+    return _to_int(last_monday + timedelta(days=5))
+
+
 def parse_date_arg(s):
     '''사용자 입력 날짜 → YYYYMMDD int. 허용: '0701'(MMDD), '20260701', '2026-07-01', '07-01'.
        달력상 실제 존재하는 날짜만 통과(2/31·13월·00000000 등은 None).
