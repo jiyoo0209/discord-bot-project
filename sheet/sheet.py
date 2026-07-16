@@ -12,7 +12,7 @@ import threading
 import functools
 from collections import defaultdict
 from dotenv import load_dotenv
-from util.dates import today_int, week_range, this_saturday, is_sunday
+from util.dates import today_int, week_range, this_saturday, is_sunday, last_week_range, last_saturday
 
 load_dotenv()
 
@@ -558,34 +558,70 @@ def calc_honor_excellent():
         return False, [], [], 0
 
 
-# 주간 배치 (명세 #4): 이번주 점령(capture_yn=Y) 미참여 & warning>0 인 길드원 warning -1
-#   ⚠️ 명세 그대로 '미참여자 차감' 구현. 반대(미참여자 +1)를 원하면 아래 부호만 바꾸면 됨.
+# 월요일 자정 배치 — '저번 주(월~일)' 기준 경고 정산 (차감 → 부여 순서)
+#   [차감] 길퀘(capture_yn=N)를 일주일 내내 매일 완주 = 주 full(7)회 → 경고 -1
+#   [차감] 저번 주 점령(capture_yn=Y, point_date=저번 주 토요일) 참여 → 경고 -1
+#     * 차감은 경고가 0이면 적용 안 됨 (0 미만 불가)
+#   [부여] 차감 반영 후, 길퀘 횟수가 limit(2) 미만 & 그 주 길퀘불가사유 미등록 → 경고 +1
+#   예) 경고 0 + 점령 참여(0이라 변동 없음) + 길퀘 미달(+1) = 경고 1
+FULL_WEEK_QUEST = 7   # '매일 완주' 판정 기준 (월~일 7회)
+
+
 @_locked
-def decrement_warnings_nonparticipants():
+def process_weekly_warnings(limit=2, full=FULL_WEEK_QUEST):
     try:
         user_ws = get_worksheet('user')
         point_ws = get_worksheet('user_point')
-        wk_start, wk_end = week_range()
+        deny_ws = get_worksheet('quest_deny_reason')
+        wk_start, wk_end = last_week_range()
+        sat = last_saturday()
 
-        participated = set()
+        quest_cnt = defaultdict(int)   # 저번 주 길퀘 완료 횟수
+        captured = set()               # 저번 주 토요일 점령 참여자
         for r in point_ws.get_all_values()[1:]:
             name = r[0] if r else ''
-            cap = (r[3].strip().upper() if len(r) > 3 else '')
+            if not name:
+                continue
             d = _int(r[1]) if len(r) > 1 else 0
-            if name and cap == 'Y' and wk_start <= d <= wk_end:
-                participated.add(name)
+            cap = (r[3].strip().upper() if len(r) > 3 else '')
+            if cap == 'N' and wk_start <= d <= wk_end:
+                quest_cnt[name] += 1
+            elif cap == 'Y' and d == sat:
+                captured.add(name)
 
-        changed = 0
+        # 저번 주에 길퀘불가사유를 등록한 유저 → 경고 부여 대상에서 제외
+        denied = set()
+        for r in deny_ws.get_all_values()[1:]:
+            if r and len(r) > 1 and wk_start <= _int(r[1]) <= wk_end:
+                denied.add(r[0])
+
+        inc = dec = 0
         for i, r in enumerate(user_ws.get_all_values()[1:], start=2):
             name = r[0] if r else ''
             rank = r[2] if len(r) > 2 else ''
             if not name or rank == '탈퇴':
                 continue
             warning = _int(r[1]) if len(r) > 1 else 0
-            if name not in participated and warning > 0:
-                user_ws.update_cell(i, 2, warning - 1)
-                changed += 1
-        return True, f'주간 경고차감 완료 — {changed}명'
+
+            # 1) 차감 — 매일(7회) 완주 -1, 점령 참여 -1. 경고 0 이하로는 안 내려감.
+            minus = 0
+            if quest_cnt[name] >= full:
+                minus += 1
+            if name in captured:
+                minus += 1
+            new = max(0, warning - minus)
+
+            # 2) 부여 — 차감 반영 '후' 길퀘 미달이면 +1 (사유 등록자 제외)
+            if quest_cnt[name] < limit and name not in denied:
+                new += 1
+
+            if new != warning:
+                user_ws.update_cell(i, 2, new)
+                if new > warning:
+                    inc += 1
+                else:
+                    dec += 1
+        return True, f'주간 경고 정산 완료 — 부여 {inc}명 · 차감 {dec}명 (기준: {wk_start}~{wk_end})'
     except Exception as e:
         print(f'오류: {e}')
         return False, f'오류: {e}'
