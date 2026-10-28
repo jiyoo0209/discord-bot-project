@@ -481,8 +481,8 @@ def add_points(names, point, capture_yn, point_date, reflection_yn='N'):
         if not known:
             return True, known, unknown
 
-        # 같은 (닉, 날짜, capture_yn) 의 '미반영(reflection_yn=N)' 행이 있으면 점수를 합산 업데이트.
-        #   같은 날 추가 지급(예: 0701 2점 뒤 0701 3점)이 두 줄로 안 쌓이고 0701 5점 한 줄이 되게.
+        # 같은 (닉, 날짜, capture_yn) 의 '미반영(reflection_yn=N)' 행이 있으면 점수를 덮어쓴다(업데이트).
+        #   같은 날 다시 체크(예: 0701 5점 뒤 0701 2점)하면 두 줄로 안 쌓이고 0701 2점 한 줄이 되게.
         cap = str(capture_yn).strip().upper()
         pdate = str(point_date).strip()
         rows = point_ws.get_all_values()
@@ -496,8 +496,8 @@ def add_points(names, point, capture_yn, point_date, reflection_yn='N'):
         for n in known:
             hit = existing.get((n, pdate, cap))
             if hit:
-                row_i, cur = hit
-                point_ws.update_cell(row_i, 3, cur + point)   # 합산
+                row_i, _cur = hit
+                point_ws.update_cell(row_i, 3, point)   # 마지막 입력값으로 덮어쓰기
             else:
                 to_append.append([n, point_date, point, capture_yn, reflection_yn])
         if to_append:

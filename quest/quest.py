@@ -59,7 +59,7 @@ class Quest(commands.Cog):
     # /체크 <점수> <길드원들> — 여러 명에게 길퀘 점수 부여 (capture_yn=N)
     @app_commands.command(name='체크', description='길드원들에게 길퀘 점수 부여')
     @app_commands.describe(점수='부여할 점수', 길드원들='공백으로 구분한 테런 닉네임들 (자동완성)',
-                           날짜='선택: 소급 지급 날짜 (예: 0701). 비우면 오늘. 같은 날짜 지급은 합산됨')
+                           날짜='선택: 소급 지급 날짜 (예: 0701). 비우면 오늘. 같은 날짜는 마지막 입력값으로 덮어씀')
     @app_commands.autocomplete(길드원들=members_autocomplete)
     async def check(self, interaction: discord.Interaction, 점수: int, 길드원들: str, 날짜: str = None):
         if not (has_role(interaction, '길마') or has_role(interaction, '서마')):
