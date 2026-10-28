@@ -33,10 +33,11 @@ _NO_PINGS = discord.AllowedMentions.none()
 # /이번주길퀘확인 — 점수 → 키캡 이모지 (0~10). 범위 밖은 숫자 그대로.
 _KEYCAPS = ['0️⃣', '1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟']
 _WEEKDAYS = ['월', '화', '수', '목', '금', '토', '일']
+_WEEK_ACCENT = discord.Colour(0x3FB8F3)   # 길드 대표 이미지(꽃)의 하늘색
 
 
 def _week_table(daily):
-    '''이번 주 월~일 한 줄. 요일+점수를 한 칸으로 묶어 정렬이 깨지지 않게. 오늘·과거는 점수(행 없으면 0), 미래는 빈칸.'''
+    '''이번 주 월~일 세로 목록 (요일 한 줄씩). 오늘·과거는 점수(행 없으면 0), 미래는 요일만.'''
     today = kst_today()
     monday = today - timedelta(days=today.weekday())
     cells = []
@@ -47,7 +48,7 @@ def _week_table(daily):
             continue
         pt = daily.get(int(d.strftime('%Y%m%d')), 0)
         cells.append(f'**{_WEEKDAYS[i]}** ' + (_KEYCAPS[pt] if 0 <= pt < len(_KEYCAPS) else str(pt)))
-    return '   '.join(cells)
+    return '\n'.join(cells)
 
 
 @app_commands.guild_only()
@@ -122,7 +123,7 @@ class Quest(commands.Cog):
             discord.ui.TextDisplay(f'## 🗡️ {name} 님의 이번주 길퀘'),
             discord.ui.Separator(),
             discord.ui.TextDisplay(_week_table(daily)),
-            accent_colour=discord.Colour(0x5865F2),
+            accent_colour=_WEEK_ACCENT,
         ))
         await interaction.followup.send(view=card, allowed_mentions=_NO_PINGS)
 
