@@ -94,6 +94,7 @@ class DashboardCard(discord.ui.LayoutView):
         tail = datetime.now(KST).strftime(' · %Y/%m/%d %H:%M 기준')
         self.add_item(discord.ui.Container(
             discord.ui.TextDisplay(f'## {emoji} {title}'),
+            discord.ui.Separator(),
             discord.ui.TextDisplay(body or '-'),
             discord.ui.Separator(),
             DashRow(),
