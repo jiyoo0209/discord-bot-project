@@ -127,16 +127,16 @@ class Quest(commands.Cog):
         ))
         await interaction.followup.send(view=card, allowed_mentions=_NO_PINGS)
 
-    # /길퀘체크제외 <닉네임> <기간(주)> [사유] [날짜] — 관리자(길마·서마)가 대신 체크제외(=길퀘불가사유) 등록.
+    # /길퀘체크제외 <닉네임> <기간(주)> <사유> [날짜] — 관리자(길마·서마)가 대신 체크제외(=길퀘불가사유) 등록.
     #   날짜가 속한 주부터 N주. 날짜 없으면 오늘이 속한 주부터. 이미 사유가 있는 주는 건너뜀.
     @app_commands.command(name='길퀘체크제외', description='(길마/서마) 길드원 길퀘 체크제외 등록 (N주)')
     @app_commands.describe(닉네임='대상 테런 닉네임 (자동완성)', 기간='제외할 주 수 (예: 3 = 3주)',
-                           사유='선택: 체크제외 사유 (비우면 "관리자 체크제외")',
+                           사유='체크제외 사유 (예: 개인사정)',
                            날짜='선택: 시작 날짜 (예: 1103). 그 날짜가 속한 주부터. 비우면 이번 주부터')
     @app_commands.autocomplete(닉네임=user_autocomplete)
     async def deny_weeks(self, interaction: discord.Interaction, 닉네임: str,
                          기간: app_commands.Range[int, 1, 52],
-                         사유: app_commands.Range[str, 1, 100] = None, 날짜: str = None):
+                         사유: app_commands.Range[str, 1, 100], 날짜: str = None):
         if not (has_role(interaction, '길마') or has_role(interaction, '서마')):
             await interaction.response.send_message('길마/서마만 사용 가능합니다!', ephemeral=True)
             return
