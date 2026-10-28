@@ -38,24 +38,6 @@ async def on_ready():
 async def test(interaction: discord.Interaction):
     await interaction.response.send_message('정상 작동!')
 
-@bot.tree.command(name='관리자', description='길마,서마만 사용 가능')
-@discord.app_commands.guild_only()
-async def admin_command(interaction: discord.Interaction):
-    # 허용할 역할 목록
-    allowed_roles = ['💜길마', '🩵서마']
-
-    # 사용자의 역할 이름 목록
-    user_roles = [role.name for role in interaction.user.roles]
-
-    # 허용된 역할이 있는지 확인
-    has_permission = any(role in user_roles for role in allowed_roles)
-
-    if not has_permission:
-        await interaction.response.send_message('길마, 서마만 사용 가능합니다!', ephemeral=True)
-        return
-
-    await interaction.response.send_message('관리자입니다!')
-
 async def main():
     token = os.getenv('DISCORD_TOKEN')
     if not token:
