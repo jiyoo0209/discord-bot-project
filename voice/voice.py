@@ -2,7 +2,8 @@
 * 음성방 자동 생성 — 감시 채널에 글이 올라오면 그 글 그대로 음성채널을 만들고 카드로 안내
 *   - 카드의 [종료] 버튼(누구나) → 음성채널 삭제(안에 있던 사람은 자동으로 연결 끊김) + 카드를 종료 표시로 교체
 *   - 사람이 모두 나가면(또는 만든 뒤 아무도 안 들어오면) 3분 뒤 자동 종료
-*   - 같은 이름의 방이 아직 진행 중이면 새로 만들지 않고 그 방으로 안내
+*   - 같은 이름의 방이 아직 진행 중이면 새로 만들지 않고 그 방으로 안내 (안내는 1분 뒤 자동 삭제)
+*   - 사용자가 쓴 원본 글은 처리 후 삭제, 카드에 만든 사람(서버 프로필 사진 + 서버 닉네임) 표시
 *   - 시트 저장 없음: 시작 시각 = 카드 메시지 작성 시각, 재시작 시 감시 채널의 카드를 훑어 진행 중인 방 복구
 * date   2026.10.28
 '''
@@ -18,6 +19,7 @@ from util.dates import KST
 WATCH_CHANNEL_ID = 1564959685780447383   # 이 채널에 올라온 글 → 음성방 생성
 CATEGORY_ID = 1414412254710861977        # 음성방을 만들 카테고리 (맨 아래에 추가)
 EMPTY_GRACE_SEC = 180                    # 비어 있으면 3분 뒤 자동 종료
+NOTICE_TTL_SEC = 60                      # '이미 있어요' 안내 카드 자동 삭제
 RECOVER_SCAN = 200                       # 재시작 시 감시 채널에서 훑을 최근 메시지 수
 
 _ACCENT = discord.Colour(0x3FB8F3)       # 길드 대표색 (다른 카드와 통일)
@@ -46,12 +48,24 @@ class EndRoomButton(discord.ui.DynamicItem[discord.ui.Button], template=r'vc_end
             await cog.end_room(interaction.guild, self.ch_id, interaction.message)
 
 
-def _room_card(name, ch_id):
+_CREATOR_RE = re.compile(r'^-# 👤 (.+)$', re.M)
+
+
+def _header(text, creator=None, avatar=None):
+    '''본문 + (만든 사람 줄) — 프로필 사진이 있으면 오른쪽 썸네일로'''
+    if creator:
+        text += f'\n-# 👤 {creator}'
+    body = discord.ui.TextDisplay(text)
+    return discord.ui.Section(body, accessory=discord.ui.Thumbnail(avatar)) if avatar else body
+
+
+def _room_card(name, ch_id, creator=None, avatar=None):
     v = discord.ui.LayoutView(timeout=None)
     row = discord.ui.ActionRow()
     row.add_item(EndRoomButton(ch_id))
     v.add_item(discord.ui.Container(
-        discord.ui.TextDisplay(f'**{name}** 음성채널을 만들었습니다.\n<#{ch_id}>'),
+        _header(f'**{discord.utils.escape_markdown(name)}** 음성채널을 만들었습니다.\n<#{ch_id}>',
+                creator, avatar),
         discord.ui.Separator(),
         row,
         accent_colour=_ACCENT,
@@ -59,10 +73,11 @@ def _room_card(name, ch_id):
     return v
 
 
-def _ended_card(name, start, end):
+def _ended_card(name, start, end, creator=None, avatar=None):
     v = discord.ui.LayoutView(timeout=None)
     v.add_item(discord.ui.Container(
-        discord.ui.TextDisplay(f'**{name}** 채널 사용이 종료되었습니다.\n{_fmt(start)} ~ {_fmt(end)}'),
+        _header(f'**{discord.utils.escape_markdown(name)}** 채널 사용이 종료되었습니다.\n'
+                f'{_fmt(start)} ~ {_fmt(end)}', creator, avatar),
         accent_colour=_ACCENT,
     ))
     return v
@@ -79,21 +94,29 @@ def _walk(components):
     for c in components or []:
         yield c
         yield from _walk(getattr(c, 'children', None) or getattr(c, 'components', None))
+        if getattr(c, 'accessory', None) is not None:
+            yield c.accessory
 
 
 def _card_info(message):
-    '''봇 카드 메시지 → (음성채널 ID, 방 이름). 진행 중 카드가 아니면 (None, None).'''
-    ch_id = name = None
+    '''봇 카드 메시지 → (음성채널 ID, 방 이름, 만든 사람, 프로필 URL). 종료 카드면 채널 ID 는 None.'''
+    ch_id = name = creator = avatar = None
     for c in _walk(message.components):
         cid = getattr(c, 'custom_id', None)
         if cid and _END_ID.match(cid):
             ch_id = int(_END_ID.match(cid).group(1))
+        media = getattr(c, 'media', None)
+        if media is not None and avatar is None:
+            avatar = getattr(media, 'url', None)
         content = getattr(c, 'content', None)
         if content and name is None:
-            m = re.search(r'\*\*(.+?)\*\*', content)
+            m = re.search(r'\*\*(.+?)(?<!\\)\*\*', content)
             if m:
-                name = m.group(1)
-    return ch_id, name
+                name = re.sub(r'\\(.)', r'\1', m.group(1))   # escape_markdown 되돌림
+            cm = _CREATOR_RE.search(content)
+            if cm:
+                creator = cm.group(1)
+    return ch_id, name, creator, avatar
 
 
 class VoiceRoom(commands.Cog):
@@ -124,9 +147,10 @@ class VoiceRoom(commands.Cog):
         async with self._lock:   # 같은 이름이 동시에 두 번 올라와도 방은 하나만
             for ch_id, room in self.rooms.items():
                 if room['name'] == name and message.guild.get_channel(ch_id) is not None:
-                    await message.reply(
-                        view=_info_card(f'이미 **{name}** 음성채널이 있어요.\n<#{ch_id}>'),
-                        mention_author=False)
+                    await message.channel.send(
+                        view=_info_card(f'이미 **{discord.utils.escape_markdown(name)}** 음성채널이 있어요.\n<#{ch_id}>'),
+                        delete_after=NOTICE_TTL_SEC)
+                    await self._delete_source(message)
                     return
 
             category = message.guild.get_channel(CATEGORY_ID)
@@ -137,16 +161,26 @@ class VoiceRoom(commands.Cog):
                 except Exception as e:
                     print(f'[voice] 위치 이동 건너뜀: {e}')
             except discord.Forbidden:
-                await message.reply('음성채널을 만들 권한이 없습니다. 봇에게 **채널 관리** 권한을 주세요.',
-                                    mention_author=False)
+                await message.channel.send('음성채널을 만들 권한이 없습니다. 봇에게 **채널 관리** 권한을 주세요.')
                 return
             except Exception as e:
                 print(f'[voice] 생성 실패: {e}')
                 return
 
-            card = await message.reply(view=_room_card(name, vc.id), mention_author=False)
+            author = message.author   # Member — display_name/display_avatar 는 서버 닉네임/서버 프로필 우선
+            card = await message.channel.send(view=_room_card(
+                name, vc.id, discord.utils.escape_markdown(author.display_name), author.display_avatar.url))
             self.rooms[vc.id] = {'name': name, 'msg_id': card.id}
+            await self._delete_source(message)
         self._schedule(vc)   # 만든 뒤 아무도 안 들어와도 3분 뒤 정리
+
+    @staticmethod
+    async def _delete_source(message):
+        '''사용자가 쓴 원본 글 삭제 (메시지 관리 권한 필요). 실패해도 진행.'''
+        try:
+            await message.delete()
+        except Exception as e:
+            print(f'[voice] 원본 글 삭제 실패: {e}')
 
     # ── 종료 (버튼 / 자동) ─────────────────────────────────
     async def end_room(self, guild, ch_id, message=None):
@@ -160,7 +194,8 @@ class VoiceRoom(commands.Cog):
                 t.cancel()
 
             ch = guild.get_channel(ch_id) if guild else None
-            if room is None and ch is None and message is not None and _card_info(message)[0] is None:
+            info = _card_info(message) if message is not None else (None, None, None, None)
+            if room is None and ch is None and message is not None and info[0] is None:
                 return   # 이미 종료된 카드 (동시 클릭 등) → 종료 시각을 덮어쓰지 않음
             name = (room or {}).get('name') or (ch.name if ch else None)
             if message is None and room:
@@ -168,8 +203,9 @@ class VoiceRoom(commands.Cog):
                     message = await self.bot.get_channel(WATCH_CHANNEL_ID).fetch_message(room['msg_id'])
                 except Exception:
                     message = None
-            if not name and message is not None:
-                name = _card_info(message)[1]
+            if message is not None:
+                info = _card_info(message)   # 만든 사람/프로필은 카드에서 그대로 가져와 종료 카드에 유지
+                name = name or info[1]
 
             if ch is not None:
                 try:
@@ -182,7 +218,7 @@ class VoiceRoom(commands.Cog):
             if message is not None:
                 try:
                     await message.edit(view=_ended_card(name or '음성', message.created_at,
-                                                        datetime.now(KST)))
+                                                        datetime.now(KST), info[2], info[3]))
                 except Exception as e:
                     print(f'[voice] 카드 갱신 실패: {e}')
         finally:
@@ -227,7 +263,7 @@ class VoiceRoom(commands.Cog):
             async for msg in channel.history(limit=RECOVER_SCAN):
                 if msg.author.id != self.bot.user.id:
                     continue
-                ch_id, name = _card_info(msg)
+                ch_id, name, _c, _a = _card_info(msg)
                 if ch_id is None or ch_id in self.rooms:
                     continue
                 vc = channel.guild.get_channel(ch_id)
