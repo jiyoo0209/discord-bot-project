@@ -44,10 +44,10 @@ def _week_table(daily):
     for i in range(7):
         d = monday + timedelta(days=i)
         if d > today:
-            cells.append(f'`{_WEEKDAYS[i]}`')
+            cells.append(f'**{_WEEKDAYS[i]}**')
             continue
         pt = daily.get(int(d.strftime('%Y%m%d')), 0)
-        cells.append(f'`{_WEEKDAYS[i]}` ' + (_KEYCAPS[pt] if 0 <= pt < len(_KEYCAPS) else str(pt)))
+        cells.append(f'**{_WEEKDAYS[i]}** ' + (_KEYCAPS[pt] if 0 <= pt < len(_KEYCAPS) else str(pt)))
     return '\n'.join(cells)
 
 
