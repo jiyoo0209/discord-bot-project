@@ -11,6 +11,7 @@ import time
 import threading
 import functools
 from collections import defaultdict
+from datetime import date, timedelta
 from dotenv import load_dotenv
 from util.dates import today_int, week_range, this_saturday, is_sunday, last_week_range, last_saturday
 
@@ -510,6 +511,38 @@ def add_points(names, point, capture_yn, point_date, reflection_yn='N'):
     except Exception as e:
         print(f'오류: {e}')
         return False, [], names
+
+
+# 관리자 대리 체크제외 (/길퀘체크제외) — start_date(YYYYMMDD int) 가 속한 주부터 weeks 주 동안,
+#   주마다 quest_deny_reason 1행 INSERT (날짜 = start_date + 7*k → 각 주 안에 들어감).
+#   일요일 차단 없음(관리자). 이미 사유가 있는 주는 건너뜀(주 1회 규칙 유지).
+#   반환: (ok, 메시지, 추가된 주 시작일 목록, 건너뛴 주 시작일 목록)
+@_locked
+def add_deny_weeks(user_name, start_date, weeks, reason='관리자 체크제외'):
+    try:
+        active = {r[0] for r in get_worksheet('user').get_all_values()[1:]
+                  if r and r[0] and (len(r) < 3 or r[2] != '탈퇴')}
+        if user_name not in active:
+            return False, f'{user_name}은(는) 존재하지 않는 유저입니다!', [], []
+        ws = get_worksheet('quest_deny_reason')
+        mine = [_int(r[1]) for r in ws.get_all_values()[1:] if r and r[0] == user_name and len(r) > 1]
+        s = str(start_date)
+        base = date(int(s[:4]), int(s[4:6]), int(s[6:8]))
+        to_append, added, skipped = [], [], []
+        for k in range(weeks):
+            d = base + timedelta(days=7 * k)
+            wk_start, wk_end = week_range(d)
+            if any(wk_start <= x <= wk_end for x in mine):
+                skipped.append(wk_start)
+                continue
+            to_append.append([user_name, int(d.strftime('%Y%m%d')), reason])
+            added.append(wk_start)
+        if to_append:
+            ws.append_rows(to_append, value_input_option='RAW')
+        return True, '', added, skipped
+    except Exception as e:
+        print(f'오류: {e}')
+        return False, f'오류: {e}', [], []
 
 
 # quest_deny_reason INSERT — 일요일 차단(토요일까지 등록), 이번주(월~일) 1회 제한

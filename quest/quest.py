@@ -10,10 +10,10 @@ from discord.ext import commands
 
 from sheet.sheet import (
     add_points, add_deny_reason, calc_honor_excellent, get_user_by_discord,
-    get_incomplete_members, get_week_daily_points,
+    get_incomplete_members, get_week_daily_points, add_deny_weeks,
 )
-from dashboard.dashboard import WEEKLY_QUEST_LIMIT
-from roleSetting.roleSetting import has_role, members_autocomplete
+from dashboard.dashboard import WEEKLY_QUEST_LIMIT, _range_date
+from roleSetting.roleSetting import has_role, members_autocomplete, user_autocomplete
 from util.dates import today_int, this_saturday, parse_date_arg, kst_today
 from datetime import timedelta
 
@@ -126,6 +126,40 @@ class Quest(commands.Cog):
             accent_colour=_WEEK_ACCENT,
         ))
         await interaction.followup.send(view=card, allowed_mentions=_NO_PINGS)
+
+    # /길퀘체크제외 <닉네임> <기간(주)> [날짜] — 관리자(길마·서마)가 대신 체크제외(=길퀘불가사유) 등록.
+    #   날짜가 속한 주부터 N주. 날짜 없으면 오늘이 속한 주부터. 이미 사유가 있는 주는 건너뜀.
+    @app_commands.command(name='길퀘체크제외', description='(길마/서마) 길드원 길퀘 체크제외 등록 (N주)')
+    @app_commands.describe(닉네임='대상 테런 닉네임 (자동완성)', 기간='제외할 주 수 (예: 3 = 3주)',
+                           날짜='선택: 시작 날짜 (예: 1103). 그 날짜가 속한 주부터. 비우면 이번 주부터')
+    @app_commands.autocomplete(닉네임=user_autocomplete)
+    async def deny_weeks(self, interaction: discord.Interaction, 닉네임: str,
+                         기간: app_commands.Range[int, 1, 52], 날짜: str = None):
+        if not (has_role(interaction, '길마') or has_role(interaction, '서마')):
+            await interaction.response.send_message('길마/서마만 사용 가능합니다!', ephemeral=True)
+            return
+        start = today_int()
+        if 날짜:
+            start = _range_date(날짜)   # MMDD 는 올해 기준 (미래 시작일 허용)
+            if start is None:
+                await interaction.response.send_message(
+                    '날짜 형식 오류입니다. 예: `1103` 또는 `20261103`', ephemeral=True)
+                return
+        await interaction.response.defer(ephemeral=True)
+        ok, msg, added, skipped = await asyncio.to_thread(add_deny_weeks, 닉네임.strip(), start, 기간)
+        if not ok:
+            await interaction.followup.send(msg, ephemeral=True)
+            return
+
+        def _md(d):  # 20261102 → 11/02
+            s = str(d)
+            return f'{s[4:6]}/{s[6:8]}'
+        lines = [f'**{닉네임}** 길퀘 체크제외 — {기간}주 ({_md(start)} 주부터)']
+        if added:
+            lines.append('✅ 등록: ' + ', '.join(f'{_md(d)}주' for d in added))
+        if skipped:
+            lines.append('⚠️ 이미 사유 있음(건너뜀): ' + ', '.join(f'{_md(d)}주' for d in skipped))
+        await interaction.followup.send('\n'.join(lines), ephemeral=True, allowed_mentions=_NO_PINGS)
 
     # /길퀘불가사유 <사유> — 본인(디스코드↔테런닉 매핑)으로 등록. 주 1회, 일요일 불가.
     @app_commands.command(name='길퀘불가사유', description='이번주 길퀘 불가 사유 등록')
