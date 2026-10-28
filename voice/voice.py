@@ -15,7 +15,7 @@ from discord.ext import commands
 
 from util.dates import KST
 
-WATCH_CHANNEL_ID = 1414412254710861979   # 이 채널에 올라온 글 → 음성방 생성
+WATCH_CHANNEL_ID = 1564959685780447383   # 이 채널에 올라온 글 → 음성방 생성
 CATEGORY_ID = 1414412254710861977        # 음성방을 만들 카테고리 (맨 아래에 추가)
 EMPTY_GRACE_SEC = 180                    # 비어 있으면 3분 뒤 자동 종료
 RECOVER_SCAN = 200                       # 재시작 시 감시 채널에서 훑을 최근 메시지 수
