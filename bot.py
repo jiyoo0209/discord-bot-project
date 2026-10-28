@@ -6,8 +6,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# 슬래시 커맨드만 쓰므로 message_content(특권 인텐트) 불필요 — 포털 설정도 필요 없음
+# message_content(특권 인텐트): 음성방 감시 채널의 글을 읽기 위해 필요 — 개발자 포털에서도 켜져 있어야 함
 intents = discord.Intents.default()
+intents.message_content = True
 bot = commands.Bot(command_prefix='/', intents=intents)
 
 _synced = False  # on_ready 는 재연결마다 불리므로 동기화 1회만
@@ -50,6 +51,7 @@ async def main():
         await bot.load_extension('quest.quest')
         await bot.load_extension('batch.batch')
         await bot.load_extension('panel.panel')
+        await bot.load_extension('voice.voice')
         # 나중에 다른 파일도 이렇게 추가
 
         # bot 실행
