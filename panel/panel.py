@@ -71,7 +71,7 @@ class DashRow(discord.ui.ActionRow):
     async def prev(self, interaction: discord.Interaction, button: discord.ui.Button):
         await _flip_card(interaction, -1)
 
-    @discord.ui.button(label='▶', style=discord.ButtonStyle.primary, custom_id='gq_panel_next')
+    @discord.ui.button(label='▶', style=discord.ButtonStyle.secondary, custom_id='gq_panel_next')
     async def next(self, interaction: discord.Interaction, button: discord.ui.Button):
         await _flip_card(interaction, +1)
 
