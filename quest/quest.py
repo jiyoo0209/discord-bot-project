@@ -10,11 +10,12 @@ from discord.ext import commands
 
 from sheet.sheet import (
     add_points, add_deny_reason, calc_honor_excellent, get_user_by_discord,
-    get_incomplete_members,
+    get_incomplete_members, get_week_daily_points,
 )
 from dashboard.dashboard import WEEKLY_QUEST_LIMIT
 from roleSetting.roleSetting import has_role, members_autocomplete
-from util.dates import today_int, this_saturday, parse_date_arg
+from util.dates import today_int, this_saturday, parse_date_arg, kst_today
+from datetime import timedelta
 
 
 def _fmt_result(known, unknown):
@@ -28,6 +29,25 @@ def _fmt_result(known, unknown):
 
 # 사용자 입력 닉을 공개 메시지로 되비칠 때 @everyone/역할 핑이 실제로 울리지 않게
 _NO_PINGS = discord.AllowedMentions.none()
+
+# /이번주길퀘확인 — 점수 → 키캡 이모지 (0~10). 범위 밖은 숫자 그대로.
+_KEYCAPS = ['0️⃣', '1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟']
+_WEEKDAYS = ['월', '화', '수', '목', '금', '토', '일']
+
+
+def _week_table(daily):
+    '''이번 주 월~일 표. 오늘·과거는 점수(행 없으면 0), 미래는 빈칸.'''
+    today = kst_today()
+    monday = today - timedelta(days=today.weekday())
+    cells = []
+    for i in range(7):
+        d = monday + timedelta(days=i)
+        if d > today:
+            cells.append('  ')
+            continue
+        pt = daily.get(int(d.strftime('%Y%m%d')), 0)
+        cells.append(_KEYCAPS[pt] if 0 <= pt < len(_KEYCAPS) else str(pt))
+    return '|' + '|'.join(_WEEKDAYS) + '|\n|' + '|'.join(cells) + '|'
 
 
 @app_commands.guild_only()
@@ -85,6 +105,20 @@ class Quest(commands.Cog):
             return
         await interaction.followup.send('**점령 참여** 기록 (8점)\n' + _fmt_result(known, unknown),
                                         ephemeral=True, allowed_mentions=_NO_PINGS)
+
+    # /이번주길퀘확인 — 본인 이번 주(월~일) 요일별 길퀘 점수 (capture_yn=N 만). 전체 길드원, 본인만 보이게.
+    @app_commands.command(name='이번주길퀘확인', description='내 이번주 요일별 길퀘 점수 확인')
+    async def week_check(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        res = await asyncio.to_thread(get_week_daily_points, interaction.user.id)
+        if not res:
+            await interaction.followup.send(
+                '등록된 길드원이 아닙니다. 먼저 관리자에게 `/가입` 을 요청하세요.', ephemeral=True)
+            return
+        name, daily = res
+        await interaction.followup.send(
+            f'**{name}** 님의 이번주 길퀘\n{_week_table(daily)}',
+            ephemeral=True, allowed_mentions=_NO_PINGS)
 
     # /길퀘불가사유 <사유> — 본인(디스코드↔테런닉 매핑)으로 등록. 주 1회, 일요일 불가.
     @app_commands.command(name='길퀘불가사유', description='이번주 길퀘 불가 사유 등록')

@@ -305,6 +305,29 @@ def get_user_status(discord_id):
         return None
 
 
+# 이번 주(월~일) 본인 요일별 길퀘 점수 (/이번주길퀘확인). capture_yn=N 만, 같은 날 여러 행은 합산.
+#   반환: (닉네임, {YYYYMMDD int: 점수}) / 미등록·탈퇴면 None. 캐시된 레코드 재사용 → 추가 읽기 없음.
+def get_week_daily_points(discord_id):
+    users, points, _denies, _ranks = get_dashboard_records()
+    name = None
+    for r in users:
+        if len(r) > 3 and r[3] == str(discord_id) and r[0] and (len(r) < 3 or r[2] != '탈퇴'):
+            name = r[0]
+            break
+    if not name:
+        return None
+    wk_start, wk_end = week_range()
+    daily = defaultdict(int)
+    for r in points:
+        if not r or r[0] != name:
+            continue
+        d = _int(r[1]) if len(r) > 1 else 0
+        cap = (r[3].strip().upper() if len(r) > 3 else '')
+        if wk_start <= d <= wk_end and cap == 'N':
+            daily[d] += _int(r[2]) if len(r) > 2 else 0
+    return name, daily
+
+
 # discord_id(D열) 로 테런 닉네임(A열) 조회 — 자동 본인 인식 (/길퀘불가사유 등)
 def get_user_by_discord(discord_id):
     try:
