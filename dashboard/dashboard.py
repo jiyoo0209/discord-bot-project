@@ -348,10 +348,10 @@ class Dashboard(commands.Cog):
     #    except Exception as e:
     #        await interaction.followup.send(f'오류: {e}', ephemeral=True)
   
-    # 이 채널에 대시보드를 상주시키고 1시간마다 자동 갱신 (배치가 이 메시지를 edit)
+    # 이 채널에 대시보드를 상주시킴 (자동 갱신 없음 — ◀▶/🔄 누를 때 최신화, 하단에 기준 시각 표시)
     #   /대시보드 와 동일한 ◀▶ 페이지 카드로 게시 — 임베드/카드 두 모양이 섞여 혼란스럽지 않게 통일.
     #   ⚠️ Discord 는 보낸 뒤 일반 메시지 ↔ V2 카드 전환(edit)이 불가 → 이전 설치분은 삭제 후 새로 게시.
-    @app_commands.command(name='대시보드설치', description='(길마/서마) 이 채널에 자동 갱신 대시보드 설치')
+    @app_commands.command(name='대시보드설치', description='(길마/서마) 이 채널에 대시보드 설치')
     async def install_dashboard(self, interaction: discord.Interaction):
         if not (has_role(interaction, '길마') or has_role(interaction, '서마')):
             await interaction.response.send_message('길마/서마만 사용 가능합니다!', ephemeral=True)
@@ -382,7 +382,7 @@ class Dashboard(commands.Cog):
         set_setting(interaction.guild.id, '_dash_ch', interaction.channel.id)
         set_setting(interaction.guild.id, '_dash_msg', msg.id)
         await interaction.followup.send(
-            '페이지 대시보드를 설치했습니다. ◀▶ 로 넘겨 보고, 1시간마다 자동 갱신됩니다.', ephemeral=True)
+            '페이지 대시보드를 설치했습니다. ◀▶ 로 넘겨 보고, 🔄 로 최신화하세요.', ephemeral=True)
 
     @app_commands.command(name='요약', description='(길마/서마) 시트 요약 탭 갱신 + 헤더 보기 좋게 정리')
     async def summary(self, interaction: discord.Interaction):

@@ -1,6 +1,6 @@
 '''
 * 배치 작업
-*   [매시간]      설치된 대시보드 메시지 자동 갱신 (명세 #10) + 요약 탭 갱신
+*   [매시간]      시트 요약 탭 갱신 (대시보드 카드는 자동 갱신 없음 — 🔄/◀▶ 버튼으로 수동 갱신)
 *   [금요일 자정] 길퀘 미완료자 리마인드 — 개인 DM + 리마인드 채널 멘션 (사유 등록자 제외)
 *   [일요일 자정] 길퀘 미완료자 셋업 채널 리마인드 (기존 유지)
 *   [월요일 자정] 지난 주 경고 정산 — 매일완주(7회) -1 · 점령 -1 차감 후, 길퀘 미달 +1
@@ -16,7 +16,7 @@ from discord.ext import commands, tasks
 from datetime import time as dtime
 
 from sheet.sheet import process_weekly_warnings, get_incomplete_members
-from dashboard.dashboard import build_embed, WEEKLY_QUEST_LIMIT, write_summary_sheet
+from dashboard.dashboard import WEEKLY_QUEST_LIMIT, write_summary_sheet
 from roleSetting.roleSetting import has_role
 from config.guild_config import get_setting, set_setting
 from util.dates import is_sunday, is_friday, is_monday, week_range, KST
@@ -43,7 +43,6 @@ class Batch(commands.Cog):
 
     @tasks.loop(hours=1)
     async def hourly(self):
-        await self._refresh_dashboards()
         try:
             await asyncio.to_thread(write_summary_sheet)  # 요약 탭도 매시간 최신화
         except Exception as e:
@@ -69,36 +68,6 @@ class Batch(commands.Cog):
     @midnight.before_loop
     async def _before_midnight(self):
         await self.bot.wait_until_ready()
-
-    # 설치된 상주 대시보드(/대시보드설치) 를 최신 데이터로 edit.
-    #   신버전 = V2 페이지 카드(현재 페이지 유지) / 구버전 설치분 = embed 폴백
-    #   (Discord 는 보낸 뒤 일반 메시지 ↔ V2 전환이 안 되므로 모양별로 맞춰 edit 해야 함).
-    async def _refresh_dashboards(self):
-        from panel.panel import DashboardCard, current_page   # 지역 import — 순환 방지
-        from sheet.sheet import get_dashboard_records
-        records = None
-        for guild in self.bot.guilds:
-            ch_id = get_setting(guild.id, '_dash_ch')
-            msg_id = get_setting(guild.id, '_dash_msg')
-            if not ch_id or not msg_id:
-                continue
-            try:
-                channel = guild.get_channel(int(ch_id)) or await self.bot.fetch_channel(int(ch_id))
-                message = await channel.fetch_message(int(msg_id))
-                if message.flags.components_v2:
-                    if records is None:   # 여러 길드여도 시트 조회는 1회
-                        records = await asyncio.to_thread(get_dashboard_records)
-                    await message.edit(view=DashboardCard(current_page(message), records, live=True))
-                else:
-                    embed = await asyncio.to_thread(build_embed)
-                    await message.edit(embed=embed)
-            except discord.NotFound:
-                # 채널/메시지가 삭제됨 → 등록 해제해서 매시간 404 반복 안 나게
-                set_setting(guild.id, '_dash_ch', '')
-                set_setting(guild.id, '_dash_msg', '')
-                print(f'[batch] 대시보드 대상 삭제됨 → 등록 해제 (다시 /대시보드설치 하면 재등록)')
-            except Exception as e:
-                print(f'[batch] 대시보드 갱신 실패(guild {guild.id}): {e}')
 
     # 월요일 1회: '저번 주(월~일)' 기준 경고 정산.
     #   차감(주7회 매일완주 -1, 점령 참여 -1, 경고 0이면 미적용) 후 → 길퀘 미달(사유 미등록) +1

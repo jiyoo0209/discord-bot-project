@@ -27,7 +27,8 @@ from roleSetting.roleSetting import has_role
 from config.guild_config import (
     set_setting, get_setting, get_role_id, set_role_id, get_guild_config, ROLE_KEYS,
 )
-from util.dates import today_int, this_saturday, parse_date_arg
+from util.dates import today_int, this_saturday, parse_date_arg, KST
+from datetime import datetime
 
 # 페이지 정의: build_sections()가 (남은횟수, 경고, 순위, 명예우수) 를 주므로 idx 로 매핑
 PAGES = [
@@ -74,10 +75,15 @@ class DashRow(discord.ui.ActionRow):
     async def next(self, interaction: discord.Interaction, button: discord.ui.Button):
         await _flip_card(interaction, +1)
 
+    # 🔄 — 페이지는 그대로, 최신 데이터 + 기준 시각만 갱신
+    @discord.ui.button(label='🔄', style=discord.ButtonStyle.secondary, custom_id='gq_panel_refresh')
+    async def refresh(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await _flip_card(interaction, 0)
+
 
 # 대시보드 페이지 = Components V2 카드. records 없으면(dispatch 등록용) 버튼만 구성(I/O 없음).
-#   live=True: /대시보드설치 로 채널에 상주하는 카드 (배치가 매시간 edit) → '자동 갱신' 표기.
-#   live=False: /대시보드·버튼의 ephemeral 카드 (배치가 못 건드림) → 표기 안 함.
+#   자동 갱신 없음 — ◀▶/🔄 를 누를 때 시트를 다시 읽고, 하단에 그 '기준 시각'(KST)을 표시한다.
+#   live 인자는 호출부 호환용으로만 남아 있다 (표시에는 영향 없음).
 class DashboardCard(discord.ui.LayoutView):
     def __init__(self, page: int = 0, records=None, live: bool = False):
         super().__init__(timeout=None)
@@ -85,14 +91,14 @@ class DashboardCard(discord.ui.LayoutView):
             self.add_item(discord.ui.Container(DashRow()))
             return
         emoji, title, body = _dash_body(page, records)
-        tail = ' · 1시간마다 자동 갱신' if live else ''
+        tail = datetime.now(KST).strftime(' · %Y/%m/%d %H:%M 기준')
         self.add_item(discord.ui.Container(
             discord.ui.TextDisplay(f'## {emoji} {title}'),
             discord.ui.TextDisplay(body or '-'),
             discord.ui.Separator(),
             DashRow(),
             discord.ui.TextDisplay(f'-# {page % len(PAGES) + 1} / {len(PAGES)}{tail}'),
-            accent_colour=discord.Colour(0x5865F2),
+            accent_colour=discord.Colour(0x3FB8F3),   # 길드 대표색 (/이번주길퀘확인 카드와 동일)
         ))
 
 
