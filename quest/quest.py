@@ -36,18 +36,18 @@ _WEEKDAYS = ['월', '화', '수', '목', '금', '토', '일']
 
 
 def _week_table(daily):
-    '''이번 주 월~일 표. 오늘·과거는 점수(행 없으면 0), 미래는 빈칸.'''
+    '''이번 주 월~일 한 줄. 요일+점수를 한 칸으로 묶어 정렬이 깨지지 않게. 오늘·과거는 점수(행 없으면 0), 미래는 빈칸.'''
     today = kst_today()
     monday = today - timedelta(days=today.weekday())
     cells = []
     for i in range(7):
         d = monday + timedelta(days=i)
         if d > today:
-            cells.append('  ')
+            cells.append(f'**{_WEEKDAYS[i]}**')
             continue
         pt = daily.get(int(d.strftime('%Y%m%d')), 0)
-        cells.append(_KEYCAPS[pt] if 0 <= pt < len(_KEYCAPS) else str(pt))
-    return '|' + '|'.join(_WEEKDAYS) + '|\n|' + '|'.join(cells) + '|'
+        cells.append(f'**{_WEEKDAYS[i]}** ' + (_KEYCAPS[pt] if 0 <= pt < len(_KEYCAPS) else str(pt)))
+    return '   '.join(cells)
 
 
 @app_commands.guild_only()
@@ -116,9 +116,15 @@ class Quest(commands.Cog):
                 '등록된 길드원이 아닙니다. 먼저 관리자에게 `/가입` 을 요청하세요.')
             return
         name, daily = res
-        await interaction.followup.send(
-            f'**{name}** 님의 이번주 길퀘\n{_week_table(daily)}',
-            allowed_mentions=_NO_PINGS)
+        # 다른 버튼/카드와 같은 Components V2 카드로 표시 (닉은 마크다운이라 멘션 핑 없음)
+        card = discord.ui.LayoutView(timeout=None)
+        card.add_item(discord.ui.Container(
+            discord.ui.TextDisplay(f'## 🗡️ {name} 님의 이번주 길퀘'),
+            discord.ui.Separator(),
+            discord.ui.TextDisplay(_week_table(daily)),
+            accent_colour=discord.Colour(0x5865F2),
+        ))
+        await interaction.followup.send(view=card, allowed_mentions=_NO_PINGS)
 
     # /길퀘불가사유 <사유> — 본인(디스코드↔테런닉 매핑)으로 등록. 주 1회, 일요일 불가.
     @app_commands.command(name='길퀘불가사유', description='이번주 길퀘 불가 사유 등록')
