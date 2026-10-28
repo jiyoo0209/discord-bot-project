@@ -4,6 +4,7 @@
 *   [금요일 자정] 길퀘 미완료자 리마인드 — 개인 DM + 리마인드 채널 멘션 (사유 등록자 제외)
 *   [일요일 자정] 길퀘 미완료자 셋업 채널 리마인드 (기존 유지)
 *   [월요일 자정] 지난 주 경고 정산 — 매일완주(7회) -1 · 점령 -1 차감 후, 길퀘 미달 +1
+*   [월요일 자정] 3개월 지난 반영 완료(reflection_yn=Y) user_point 행 삭제
 * + /주간경고처리 : 수동 실행 (테스트/보정용)
 * author ENI
 * date   2026.07.16
@@ -15,7 +16,7 @@ from discord.ext import commands, tasks
 
 from datetime import time as dtime
 
-from sheet.sheet import process_weekly_warnings, get_incomplete_members
+from sheet.sheet import process_weekly_warnings, get_incomplete_members, purge_old_points
 from dashboard.dashboard import WEEKLY_QUEST_LIMIT, write_summary_sheet
 from roleSetting.roleSetting import has_role
 from config.guild_config import get_setting, set_setting
@@ -49,6 +50,7 @@ class Batch(commands.Cog):
             print(f'[batch] 요약 탭 갱신 실패: {e}')
         # 자정 정각 발송이 실패했어도 그날 안에 매시간 재시도되도록 (가드키로 중복 방지)
         await self._weekly_warning()
+        await self._purge_points()
         await self._friday_reminder()
 
     @hourly.before_loop
@@ -64,6 +66,7 @@ class Batch(commands.Cog):
             await self._sunday_reminder()
         if is_monday():
             await self._weekly_warning()
+            await self._purge_points()
 
     @midnight.before_loop
     async def _before_midnight(self):
@@ -81,6 +84,19 @@ class Batch(commands.Cog):
         ok, msg = await asyncio.to_thread(process_weekly_warnings, WEEKLY_QUEST_LIMIT)
         if ok:
             set_setting('_global', '_warn_week', week_id)
+        print(f'[batch] {msg}')
+
+    # 월요일 1회: 3개월 지난 반영 완료 포인트 정리 (경고 정산 뒤에 실행 — 정산은 지난 주 데이터만 씀).
+    #   가드키로 주 1회, 실패 시 가드 미설정 → 그날 매시간 재시도.
+    async def _purge_points(self):
+        if not is_monday():
+            return
+        week_id = week_range()[0]
+        if get_setting('_global', '_purge_week') == week_id:
+            return
+        ok, msg = await asyncio.to_thread(purge_old_points, 3)
+        if ok:
+            set_setting('_global', '_purge_week', week_id)
         print(f'[batch] {msg}')
 
     # 금요일 1회: 이번 주 길퀘 미완료자(사유 등록자 제외)에게

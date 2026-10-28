@@ -13,7 +13,7 @@ import functools
 from collections import defaultdict
 from datetime import date, timedelta
 from dotenv import load_dotenv
-from util.dates import today_int, week_range, this_saturday, is_sunday, last_week_range, last_saturday
+from util.dates import today_int, week_range, this_saturday, is_sunday, last_week_range, last_saturday, kst_today
 
 load_dotenv()
 
@@ -612,6 +612,53 @@ def calc_honor_excellent():
     except Exception as e:
         print(f'오류: {e}')
         return False, [], [], 0
+
+
+# 월요일 자정 배치 — 오래된 반영 완료 포인트 정리
+#   reflection_yn=Y 이면서 date 가 '오늘 기준 3개월 전 같은 날' 보다 이전인 user_point 행 삭제.
+#   (미반영 N 행과 날짜를 못 읽는 행은 보존). 행 삭제는 단일 batch_update 로 → 전부 아니면 전무.
+def _months_ago(d, months):
+    y, m = d.year, d.month - months
+    while m < 1:
+        m += 12
+        y -= 1
+    for day in (d.day, 30, 29, 28):   # 말일 보정 (5/31 → 2/28 등)
+        try:
+            return date(y, m, day)
+        except ValueError:
+            continue
+
+
+@_locked
+def purge_old_points(months=3):
+    try:
+        ws = get_worksheet('user_point')
+        cutoff = int(_months_ago(kst_today(), months).strftime('%Y%m%d'))
+        rows = []   # 삭제할 1-based 행 번호
+        for i, r in enumerate(ws.get_all_values()[1:], start=2):
+            d = _int(r[1]) if len(r) > 1 else 0
+            reflect = (r[4].strip().upper() if len(r) > 4 else '')
+            if reflect == 'Y' and 0 < d < cutoff:
+                rows.append(i)
+        if not rows:
+            return True, f'오래된 포인트 정리 — 삭제 0행 (기준: {cutoff} 이전 · 반영 Y)'
+        # 연속 행을 구간으로 묶어 아래쪽부터 삭제 요청 (위부터 지우면 인덱스가 밀림)
+        spans, start, prev = [], rows[0], rows[0]
+        for r in rows[1:]:
+            if r == prev + 1:
+                prev = r
+                continue
+            spans.append((start, prev))
+            start = prev = r
+        spans.append((start, prev))
+        reqs = [{'deleteDimension': {'range': {'sheetId': ws.id, 'dimension': 'ROWS',
+                                               'startIndex': a - 1, 'endIndex': b}}}
+                for a, b in reversed(spans)]
+        ws.spreadsheet.batch_update({'requests': reqs})
+        return True, f'오래된 포인트 정리 — 삭제 {len(rows)}행 (기준: {cutoff} 이전 · 반영 Y)'
+    except Exception as e:
+        print(f'오류: {e}')
+        return False, f'오류: {e}'
 
 
 # 월요일 자정 배치 — '저번 주(월~일)' 기준 경고 정산 (차감 → 부여 순서)
