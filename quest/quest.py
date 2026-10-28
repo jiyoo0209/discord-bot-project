@@ -106,19 +106,19 @@ class Quest(commands.Cog):
         await interaction.followup.send('**점령 참여** 기록 (8점)\n' + _fmt_result(known, unknown),
                                         ephemeral=True, allowed_mentions=_NO_PINGS)
 
-    # /이번주길퀘확인 — 본인 이번 주(월~일) 요일별 길퀘 점수 (capture_yn=N 만). 전체 길드원, 본인만 보이게.
+    # /이번주길퀘확인 — 본인 이번 주(월~일) 요일별 길퀘 점수 (capture_yn=N 만). 전체 길드원, 채널에 공개.
     @app_commands.command(name='이번주길퀘확인', description='내 이번주 요일별 길퀘 점수 확인')
     async def week_check(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
+        await interaction.response.defer()
         res = await asyncio.to_thread(get_week_daily_points, interaction.user.id)
         if not res:
             await interaction.followup.send(
-                '등록된 길드원이 아닙니다. 먼저 관리자에게 `/가입` 을 요청하세요.', ephemeral=True)
+                '등록된 길드원이 아닙니다. 먼저 관리자에게 `/가입` 을 요청하세요.')
             return
         name, daily = res
         await interaction.followup.send(
             f'**{name}** 님의 이번주 길퀘\n{_week_table(daily)}',
-            ephemeral=True, allowed_mentions=_NO_PINGS)
+            allowed_mentions=_NO_PINGS)
 
     # /길퀘불가사유 <사유> — 본인(디스코드↔테런닉 매핑)으로 등록. 주 1회, 일요일 불가.
     @app_commands.command(name='길퀘불가사유', description='이번주 길퀘 불가 사유 등록')
