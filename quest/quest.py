@@ -15,7 +15,8 @@ from sheet.sheet import (
 from dashboard.dashboard import WEEKLY_QUEST_LIMIT, _range_date
 from roleSetting.roleSetting import has_role, members_autocomplete, user_autocomplete
 from util.dates import today_int, this_saturday, parse_date_arg, kst_today
-from datetime import timedelta
+from datetime import timedelta, datetime
+from util.dates import KST
 
 
 def _fmt_result(known, unknown):
@@ -34,6 +35,19 @@ _NO_PINGS = discord.AllowedMentions.none()
 _KEYCAPS = ['0️⃣', '1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟']
 _WEEKDAYS = ['월', '화', '수', '목', '금', '토', '일']
 _WEEK_ACCENT = discord.Colour(0x3FB8F3)   # 길드 대표 이미지(꽃)의 하늘색
+CHECK_LOG_CHANNEL_ID = 1556903534900023296   # /체크 완료 기록 채널
+
+
+def _check_log_embed(user, point, known, unknown, retro=None):
+    '''/체크 기록 카드 — 임베드 (작은 프로필이 닉네임 왼쪽에 오는 건 임베드 author 만 가능)'''
+    lines = [f'✅ **{point}점** : {", ".join(known)}']
+    if unknown:
+        lines.append(f'⚠️ 미등록(건너뜀) : {", ".join(unknown)}')
+    when = datetime.now(KST).strftime('%Y/%m/%d %H:%M') + (f' · {retro} 소급' if retro else '')
+    lines.append(f'-# {when}')
+    e = discord.Embed(title='길퀘 체크 완료', description='\n'.join(lines), colour=_WEEK_ACCENT)
+    e.set_author(name=user.display_name, icon_url=user.display_avatar.url)
+    return e
 
 
 def _week_table(daily):
@@ -85,6 +99,15 @@ class Quest(commands.Cog):
         head = f'**{점수}점** 체크' + (f' ({ds[4:6]}/{ds[6:8]} 소급)' if 날짜 else '')
         await interaction.followup.send(head + '\n' + _fmt_result(known, unknown),
                                         ephemeral=True, allowed_mentions=_NO_PINGS)
+        if known:   # 기록 채널에 남김 — 실패해도 체크 자체는 이미 반영됨
+            try:
+                ch = (self.bot.get_channel(CHECK_LOG_CHANNEL_ID)
+                      or await self.bot.fetch_channel(CHECK_LOG_CHANNEL_ID))
+                await ch.send(embed=_check_log_embed(
+                    interaction.user, 점수, known, unknown, f'{ds[4:6]}/{ds[6:8]}' if 날짜 else None),
+                    allowed_mentions=_NO_PINGS)
+            except Exception as e:
+                print(f'[quest] 체크 기록 실패: {e}')
 
     # /점령 <길드원들> — 점령 참여 기록 (point 8, capture_yn=Y, 날짜=이번주 토요일)
     @app_commands.command(name='점령', description='점령 참여 기록 (8점)')
