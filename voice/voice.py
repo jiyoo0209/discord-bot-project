@@ -4,7 +4,8 @@
 *   - 사람이 모두 나가면(또는 만든 뒤 아무도 안 들어오면) 3분 뒤 자동 종료
 *   - 같은 이름의 방이 아직 진행 중이면 새로 만들지 않고 그 방으로 안내 (안내는 1분 뒤 자동 삭제)
 *   - 사용자가 쓴 원본 글은 처리 후 삭제
-*   - 카드 = 임베드: [프로필 사진 + 서버 닉네임] / 내용 / 시간 순 (예전 V2 카드도 종료·복구 지원)
+*   - 카드(V2): [서버 닉네임 / 내용 / 시간 + 오른쪽 프로필 썸네일] · 구분선 · [종료]
+*     (예전 임베드 카드·V2 카드도 종료·복구 지원)
 *   - 시트 저장 없음: 시작 시각 = 카드 메시지 작성 시각, 재시작 시 감시 채널의 카드를 훑어 진행 중인 방 복구
 * date   2026.10.28
 '''
@@ -49,44 +50,53 @@ class EndRoomButton(discord.ui.DynamicItem[discord.ui.Button], template=r'vc_end
             await cog.end_room(interaction.guild, self.ch_id, interaction.message)
 
 
-_CREATOR_RE = re.compile(r'^-# 👤 (.+)$', re.M)
+_CREATOR_RE = re.compile(r'^-# 👤 (.+)$', re.M)                       # 예전 V2 카드의 만든 사람 줄
+_NICK_RE = re.compile(r'^\*\*(.+?)(?<!\\)\*\*$', re.M)                    # 현재 카드 첫 줄 = **닉네임**
+_ROOM_RE = re.compile(r'\*\*(.+?)(?<!\\)\*\* (?:음성채널을 만들었습니다|채널 사용이 종료되었습니다)')
 
 
-def _header(text, creator=None, avatar=None):
-    '''(예전 V2 카드용) 본문 + (만든 사람 줄) — 프로필 사진이 있으면 오른쪽 썸네일로'''
-    if creator:
-        text += f'\n-# 👤 {creator}'
-    body = discord.ui.TextDisplay(text)
+def _unesc(s):
+    return re.sub(r'\\(.)', r'\1', s)   # escape_markdown 되돌림
+
+
+def _esc(s):
+    return discord.utils.escape_markdown(s)
+
+
+def _head(creator, text, when, avatar):
+    '''닉네임 / 내용 / 시간 — 프로필 사진은 오른쪽 썸네일 (V2 는 글자 옆 이미지 불가)'''
+    lines = ([f'**{_esc(creator)}**'] if creator else []) + [text, f'-# <t:{int(when.timestamp())}:f>']
+    body = discord.ui.TextDisplay('\n'.join(lines))
     return discord.ui.Section(body, accessory=discord.ui.Thumbnail(avatar)) if avatar else body
 
 
-def _ended_card(name, start, end, creator=None, avatar=None):
+def _room_card(name, ch_id, creator=None, avatar=None):
     v = discord.ui.LayoutView(timeout=None)
+    row = discord.ui.ActionRow()
+    row.add_item(EndRoomButton(ch_id))
     v.add_item(discord.ui.Container(
-        _header(f'**{discord.utils.escape_markdown(name)}** 채널 사용이 종료되었습니다.\n'
-                f'{_fmt(start)} ~ {_fmt(end)}', creator, avatar),
+        _head(creator, f'**{_esc(name)}** 음성채널을 만들었습니다.\n<#{ch_id}>',
+              datetime.now(timezone.utc), avatar),
+        discord.ui.Separator(),
+        row,
         accent_colour=_ACCENT,
     ))
     return v
 
 
-# ── 임베드 카드 (프로필 사진·닉네임 / 내용 / 시간) ────────────────────
-def _room_embed(name, ch_id, creator=None, avatar=None):
-    e = discord.Embed(description=f'**{discord.utils.escape_markdown(name)}** 음성채널을 만들었습니다.\n<#{ch_id}>',
-                      colour=_ACCENT, timestamp=datetime.now(timezone.utc))
-    if creator:
-        e.set_author(name=creator, icon_url=avatar)
-    return e
-
-
-def _room_view(ch_id):
-    v = discord.ui.View(timeout=None)
-    v.add_item(EndRoomButton(ch_id))
+def _ended_card(name, start, end, creator=None, avatar=None):
+    v = discord.ui.LayoutView(timeout=None)
+    v.add_item(discord.ui.Container(
+        _head(creator, f'**{_esc(name)}** 채널 사용이 종료되었습니다.\n{_fmt(start)} ~ {_fmt(end)}',
+              end, avatar),
+        accent_colour=_ACCENT,
+    ))
     return v
 
 
+# (예전 임베드 카드 종료용 — 이미 올라가 있는 임베드 카드는 임베드로만 수정 가능)
 def _ended_embed(name, start, end, creator=None, avatar=None):
-    e = discord.Embed(description=f'**{discord.utils.escape_markdown(name)}** 채널 사용이 종료되었습니다.\n'
+    e = discord.Embed(description=f'**{_esc(name)}** 채널 사용이 종료되었습니다.\n'
                                   f'{_fmt(start)} ~ {_fmt(end)}',
                       colour=_ACCENT, timestamp=end)
     if creator:
@@ -112,12 +122,12 @@ def _walk(components):
 def _card_info(message):
     '''봇 카드 메시지 → (음성채널 ID, 방 이름, 만든 사람, 프로필 URL). 종료 카드면 채널 ID 는 None.'''
     ch_id = name = creator = avatar = None
-    if message.embeds:   # 임베드 카드
+    if message.embeds:   # 예전 임베드 카드
         e = message.embeds[0]
         creator, avatar = e.author.name, e.author.icon_url
-        m = re.search(r'\*\*(.+?)(?<!\\)\*\*', e.description or '')
+        m = _ROOM_RE.search(e.description or '')
         if m:
-            name = re.sub(r'\\(.)', r'\1', m.group(1))
+            name = _unesc(m.group(1))
     for c in _walk(message.components):
         cid = getattr(c, 'custom_id', None)
         if cid and _END_ID.match(cid):
@@ -127,12 +137,12 @@ def _card_info(message):
             avatar = getattr(media, 'url', None)
         content = getattr(c, 'content', None)
         if content and name is None:
-            m = re.search(r'\*\*(.+?)(?<!\\)\*\*', content)
+            m = _ROOM_RE.search(content)
             if m:
-                name = re.sub(r'\\(.)', r'\1', m.group(1))   # escape_markdown 되돌림
-            cm = _CREATOR_RE.search(content)
+                name = _unesc(m.group(1))
+            cm = _NICK_RE.search(content) or _CREATOR_RE.search(content)
             if cm:
-                creator = cm.group(1)
+                creator = _unesc(cm.group(1))
     return ch_id, name, creator, avatar
 
 
@@ -186,8 +196,7 @@ class VoiceRoom(commands.Cog):
 
             author = message.author   # Member — display_name/display_avatar 는 서버 닉네임/서버 프로필 우선
             card = await message.channel.send(
-                embed=_room_embed(name, vc.id, author.display_name, author.display_avatar.url),
-                view=_room_view(vc.id))
+                view=_room_card(name, vc.id, author.display_name, author.display_avatar.url))
             self.rooms[vc.id] = {'name': name, 'msg_id': card.id}
             await self._delete_source(message)
         self._schedule(vc)   # 만든 뒤 아무도 안 들어와도 3분 뒤 정리
@@ -236,7 +245,7 @@ class VoiceRoom(commands.Cog):
             if message is not None:
                 try:
                     end = datetime.now(KST)
-                    if message.flags.components_v2:   # 예전 V2 카드는 V2 로만 수정 가능
+                    if message.flags.components_v2:   # V2 카드는 V2 로, 예전 임베드 카드는 임베드로만 수정 가능
                         await message.edit(view=_ended_card(name or '음성', message.created_at,
                                                             end, info[2], info[3]))
                     else:
