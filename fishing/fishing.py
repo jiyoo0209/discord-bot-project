@@ -79,9 +79,10 @@ def calc(start_lv, pct, gained):
     return lv, end_pct, CUM[lv] - total
 
 
-def _bar(pct, width=20):
+def _bar(pct, width=10):
+    '''네모 이모지 진행 바 — ▰▱ 는 폰 글꼴에서 깨져 보임'''
     n = int(pct * width // 100)
-    return '▰' * n + '▱' * (width - n)
+    return '🟩' * n + '⬜' * (width - n)
 
 
 
@@ -280,8 +281,8 @@ class FishingView(discord.ui.LayoutView):
         else:
             end_txt = f'{rank_name(end_lv)} · **{end_pct:.2f}%**'
             up = end_lv - start_lv
-            change = f'⬆️ {up}레벨 상승' if up else f'+{end_pct - start_pct:.2f}%'
-            progress = (f'{_bar(end_pct)}  {change}\n'
+            change = f'⬆️ {up}레벨 상승' if up else f'⬆️ +{end_pct - start_pct:.2f}%'
+            progress = (f'{_bar(end_pct)} {end_pct:.2f}%\n{change}\n'
                         f'🚩 {rank_name(end_lv + 1)}까지 **{remain:,}** 남음')
 
         buttons = discord.ui.ActionRow(
@@ -292,7 +293,7 @@ class FishingView(discord.ui.LayoutView):
             discord.ui.TextDisplay(f'### 🏆 계산 결과\n-# 경험치 {len(st.entries)}건 · 합계 {gained:,}'),
             discord.ui.Separator(),
             discord.ui.TextDisplay(f'-# 시작\n{start_txt}'),
-            discord.ui.TextDisplay('⬇️'),
+            discord.ui.TextDisplay('-# ↓'),   # 이모지만 있는 줄은 크게 표시돼서 작은 글자 화살표
             discord.ui.TextDisplay(f'-# 도착\n{end_txt}'),
             discord.ui.Separator(),
             discord.ui.TextDisplay(progress),
