@@ -38,14 +38,13 @@ _WEEK_ACCENT = discord.Colour(0x3FB8F3)   # 길드 대표 이미지(꽃)의 하�
 CHECK_LOG_CHANNEL_ID = 1556903534900023296   # /체크 완료 기록 채널
 
 
-def _check_log_embed(user, point, known, unknown, retro=None):
+def _check_log_embed(user, point, known, unknown, pdate):
     '''/체크 기록 카드 — 임베드 (작은 프로필이 닉네임 왼쪽에 오는 건 임베드 author 만 가능)'''
     lines = [f'✅ **{point}점** : {", ".join(known)}']
     if unknown:
         lines.append(f'⚠️ 미등록(건너뜀) : {", ".join(unknown)}')
-    when = datetime.now(KST).strftime('%Y/%m/%d %H:%M') + (f' · {retro} 소급' if retro else '')
-    lines.append(f'-# {when}')
-    e = discord.Embed(title='길퀘 체크 완료', description='\n'.join(lines), colour=_WEEK_ACCENT)
+    lines.append(f'-# {datetime.now(KST).strftime("%Y/%m/%d %H:%M")}')
+    e = discord.Embed(title=f'길퀘 체크 완료 ({pdate})', description='\n'.join(lines), colour=_WEEK_ACCENT)
     e.set_author(name=user.display_name, icon_url=user.display_avatar.url)
     return e
 
@@ -104,7 +103,7 @@ class Quest(commands.Cog):
                 ch = (self.bot.get_channel(CHECK_LOG_CHANNEL_ID)
                       or await self.bot.fetch_channel(CHECK_LOG_CHANNEL_ID))
                 await ch.send(embed=_check_log_embed(
-                    interaction.user, 점수, known, unknown, f'{ds[4:6]}/{ds[6:8]}' if 날짜 else None),
+                    interaction.user, 점수, known, unknown, f'{ds[4:6]}/{ds[6:8]}'),
                     allowed_mentions=_NO_PINGS)
             except Exception as e:
                 print(f'[quest] 체크 기록 실패: {e}')
