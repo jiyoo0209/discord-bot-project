@@ -1,5 +1,7 @@
 '''
-* /낚시계산 — 테일즈런너 낚시 경험치 계산기 (Components V2 카드, 본인에게만 보임)
+* 테일즈런너 낚시 경험치 계산기 (Components V2 카드)
+*   - /낚시계산기설치 <채널> (관리자·길마·서마): 채널에 모두가 보는 계산기 카드를 설치 (재시작 후에도 동작)
+*   - 설치 카드를 누르면 누른 사람 전용 계산기(본인만 보임)가 열려 이어서 입력 — 여러 명이 동시에 써도 안 섞임
 *   - 게임에선 현재 레벨의 퍼센트만 보이므로: [색깔] [윙] [퍼센트] + 획득 경험치들 → 도착 계급/퍼센트
 *   - 입력 카드: 현재 위치 · 획득 경험치 목록(항목별 ✕) · 색깔/윙 선택 · [퍼센트 입력][경험치 추가][계산][초기화]
 *   - 퍼센트·경험치 입력은 팝업(모달) — 디스코드 카드에는 입력창을 직접 둘 수 없음
@@ -15,6 +17,9 @@ from decimal import Decimal
 import discord
 from discord import app_commands
 from discord.ext import commands
+
+from config.guild_config import get_setting, set_setting
+from roleSetting.roleSetting import has_role
 
 _ACCENT = discord.Colour(0x3FB8F3)   # 길드 대표색 (다른 카드와 통일)
 _RESULT = discord.Colour(0x639922)   # 결과 카드 초록
@@ -86,13 +91,23 @@ def _card(text, colour=_ACCENT):
     return v
 
 
+async def _show(interaction, view, fresh=False):
+    '''fresh: 설치 카드에서 시작 → 개인 계산기를 새 메시지(본인만 보임)로, 아니면 지금 카드를 갱신'''
+    if fresh:
+        await interaction.response.send_message(view=view.render(), ephemeral=True)
+        view.origin = interaction
+    else:
+        await interaction.response.edit_message(view=view.render())
+
+
 # ── 팝업 ─────────────────────────────────────────────
 class PercentModal(discord.ui.Modal, title='퍼센트 입력'):
     value = discord.ui.TextInput(label='현재 레벨 경험치 퍼센트', placeholder='77.46', max_length=6)
 
-    def __init__(self, owner):
+    def __init__(self, owner, fresh=False):
         super().__init__()
         self.owner = owner
+        self.fresh = fresh   # 설치 카드에서 열림 → 개인 계산기를 새로 띄움
         if owner.pct is not None:
             self.value.default = f'{owner.pct:.2f}'
 
@@ -103,15 +118,16 @@ class PercentModal(discord.ui.Modal, title='퍼센트 입력'):
             return
         self.owner.pct = Decimal(s)
         self.owner.mode = 'input'
-        await interaction.response.edit_message(view=self.owner.render())
+        await _show(interaction, self.owner, self.fresh)
 
 
 class ExpModal(discord.ui.Modal, title='경험치 추가'):
     value = discord.ui.TextInput(label='획득 경험치', placeholder='10000000', max_length=15)
 
-    def __init__(self, owner):
+    def __init__(self, owner, fresh=False):
         super().__init__()
         self.owner = owner
+        self.fresh = fresh
 
     async def on_submit(self, interaction):
         s = re.sub(r'[,\s]', '', self.value.value)
@@ -120,33 +136,35 @@ class ExpModal(discord.ui.Modal, title='경험치 추가'):
             return
         self.owner.entries.append(int(s))
         self.owner.mode = 'input'
-        await interaction.response.edit_message(view=self.owner.render())
+        await _show(interaction, self.owner, self.fresh)
 
 
 # ── 카드 컴포넌트 ─────────────────────────────────────────
 class _ColorSelect(discord.ui.Select):
     def __init__(self, owner):
-        super().__init__(placeholder='색깔 선택', options=[
+        super().__init__(placeholder='색깔 선택', **owner.cid('color'), options=[
             discord.SelectOption(label=name, value=str(i), emoji=emoji, default=owner.color == i)
             for i, (name, emoji) in enumerate(COLORS)])
         self.owner = owner
 
     async def callback(self, interaction):
-        self.owner.color = int(self.values[0])
-        await interaction.response.edit_message(view=self.owner.render())
+        view, fresh = self.owner.target(interaction)
+        view.color = int(self.values[0])
+        await _show(interaction, view, fresh)
 
 
 class _WingSelect(discord.ui.Select):
     def __init__(self, owner):
-        super().__init__(placeholder='윙 선택', options=[
+        super().__init__(placeholder='윙 선택', **owner.cid('wing'), options=[
             discord.SelectOption(label=name, value=str(i), default=owner.wing == i,
                                  description=f'Lv.{i * 7 + 1}~{i * 7 + 7}')
             for i, name in enumerate(WINGS)])
         self.owner = owner
 
     async def callback(self, interaction):
-        self.owner.wing = int(self.values[0])
-        await interaction.response.edit_message(view=self.owner.render())
+        view, fresh = self.owner.target(interaction)
+        view.wing = int(self.values[0])
+        await _show(interaction, view, fresh)
 
 
 class _Btn(discord.ui.Button):
@@ -160,8 +178,9 @@ class _Btn(discord.ui.Button):
 
 
 class FishingView(discord.ui.LayoutView):
-    def __init__(self, owner_id):
-        super().__init__(timeout=_IDLE_SEC)
+    '''owner_id 없음 = 채널에 설치하는 공용 카드(고정 custom_id, 만료 없음), 있음 = 그 사람 전용 계산기'''
+    def __init__(self, owner_id=None):
+        super().__init__(timeout=None if owner_id is None else _IDLE_SEC)
         self.owner_id = owner_id
         self.origin = None    # 원본 상호작용 — 타임아웃 시 카드 갱신용
         self.reset()
@@ -171,6 +190,20 @@ class FishingView(discord.ui.LayoutView):
         self.color = self.wing = self.pct = None
         self.entries = []
         self.mode = 'input'
+
+    @property
+    def public(self):
+        return self.owner_id is None
+
+    def cid(self, name):
+        '''공용 카드는 재시작 후에도 동작하도록 고정 custom_id'''
+        return {'custom_id': f'fishcalc:{name}'} if self.public else {}
+
+    def target(self, interaction):
+        '''조작할 계산기 — 공용 카드면 누른 사람 전용 계산기를 새로 만듦. (계산기, 새 메시지 여부)'''
+        if self.public:
+            return FishingView(interaction.user.id), True
+        return self, False
 
     @property
     def level(self):
@@ -188,7 +221,7 @@ class FishingView(discord.ui.LayoutView):
         where = rank_name(self.level) if self.level else '-# 아래에서 색깔과 윙을 골라주세요'
         pct = f' · **{self.pct:.2f}%**' if self.pct is not None else ' · 퍼센트 미입력'
         items = [
-            discord.ui.TextDisplay('### 🎣 낚시 경험치 계산기\n-# 계급과 퍼센트를 고르고 경험치를 쌓아보세요'),
+            discord.ui.TextDisplay('### 🎣 낚시 경험치 계산기\n-# 레벨과 퍼센트를 고르고 경험치를 쌓아보세요'),
             discord.ui.Separator(),
             discord.ui.TextDisplay(f'**현재 위치**\n{where}{pct if self.level else ""}'),
         ]
@@ -204,10 +237,10 @@ class FishingView(discord.ui.LayoutView):
 
         selects = [discord.ui.ActionRow(_ColorSelect(self)), discord.ui.ActionRow(_WingSelect(self))]
         buttons = discord.ui.ActionRow(
-            _Btn(self._ask_pct, label='퍼센트 입력', emoji='📊', style=discord.ButtonStyle.secondary),
-            _Btn(self._ask_exp, label='경험치 추가', emoji='➕', style=discord.ButtonStyle.secondary),
-            _Btn(self._calculate, label='계산', emoji='🧮', style=discord.ButtonStyle.primary),
-            _Btn(self._reset, label='초기화', emoji='🔄', style=discord.ButtonStyle.danger),
+            _Btn(self._ask_pct, label='퍼센트 입력', emoji='📊', style=discord.ButtonStyle.secondary, **self.cid('pct')),
+            _Btn(self._ask_exp, label='경험치 추가', emoji='➕', style=discord.ButtonStyle.secondary, **self.cid('exp')),
+            _Btn(self._calculate, label='계산', emoji='🧮', style=discord.ButtonStyle.primary, **self.cid('calc')),
+            _Btn(self._reset, label='초기화', emoji='🔄', style=discord.ButtonStyle.danger, **self.cid('reset')),
         )
         return discord.ui.Container(*items, discord.ui.Separator(), *selects, buttons, accent_colour=_ACCENT)
 
@@ -254,14 +287,16 @@ class FishingView(discord.ui.LayoutView):
         return remove
 
     async def _ask_pct(self, interaction):
-        await interaction.response.send_modal(PercentModal(self))
+        view, fresh = self.target(interaction)
+        await interaction.response.send_modal(PercentModal(view, fresh))
 
     async def _ask_exp(self, interaction):
-        if len(self.entries) >= MAX_ENTRIES:
+        view, fresh = self.target(interaction)
+        if len(view.entries) >= MAX_ENTRIES:
             await interaction.response.send_message(
                 f'경험치는 한 번에 {MAX_ENTRIES}건까지 넣을 수 있어요. 몇 건을 합쳐서 넣어주세요.', ephemeral=True)
             return
-        await interaction.response.send_modal(ExpModal(self))
+        await interaction.response.send_modal(ExpModal(view, fresh))
 
     async def _calculate(self, interaction):
         missing = [n for n, ok in (('색깔', self.color is not None), ('윙', self.wing is not None),
@@ -273,11 +308,12 @@ class FishingView(discord.ui.LayoutView):
         await interaction.response.edit_message(view=self.render())
 
     async def _reset(self, interaction):
-        self.reset()
-        await interaction.response.edit_message(view=self.render())
+        view, fresh = self.target(interaction)
+        view.reset()
+        await _show(interaction, view, fresh)
 
     async def interaction_check(self, interaction):
-        return interaction.user.id == self.owner_id
+        return self.public or interaction.user.id == self.owner_id
 
     async def on_timeout(self):
         if self.origin is not None:
@@ -288,15 +324,49 @@ class FishingView(discord.ui.LayoutView):
                 pass
 
 
+def _is_admin(interaction):
+    return (interaction.user.guild_permissions.administrator
+            or has_role(interaction, '길마') or has_role(interaction, '서마'))
+
+
+@app_commands.guild_only()
 class Fishing(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @app_commands.command(name='낚시계산', description='낚시 경험치 계산기 — 현재 계급·퍼센트 + 획득 경험치 → 도착 계급')
-    async def fishing_calc(self, interaction: discord.Interaction):
-        view = FishingView(interaction.user.id)
-        await interaction.response.send_message(view=view, ephemeral=True)
-        view.origin = interaction
+    async def cog_load(self):
+        self.bot.add_view(FishingView())   # 설치된 공용 카드 — 재시작 후에도 버튼/선택 동작
+
+    # 대시보드처럼 채널에 상주 — 이전 설치분은 지우고 새로 게시
+    @app_commands.command(name='낚시계산기설치', description='(관리자) 선택한 채널에 낚시 경험치 계산기 카드 설치')
+    @app_commands.describe(channel='계산기 카드를 설치할 채널')
+    async def install(self, interaction: discord.Interaction, channel: discord.TextChannel):
+        if not _is_admin(interaction):
+            await interaction.response.send_message('관리자만 사용 가능합니다!', ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True)
+        old_ch = get_setting(interaction.guild.id, '_fish_ch')
+        old_msg = get_setting(interaction.guild.id, '_fish_msg')
+        if old_ch and old_msg:
+            try:
+                ch = (interaction.guild.get_channel(int(old_ch))
+                      or await self.bot.fetch_channel(int(old_ch)))
+                old = await ch.fetch_message(int(old_msg))
+                await old.delete()
+            except Exception:
+                pass
+        try:
+            msg = await channel.send(view=FishingView().render())
+        except discord.Forbidden:
+            await interaction.followup.send(
+                f'{channel.mention} 에 메시지를 보낼 권한이 없습니다. 봇 권한을 확인하세요.', ephemeral=True)
+            return
+        except Exception as e:
+            await interaction.followup.send(f'설치 실패: {e}', ephemeral=True)
+            return
+        set_setting(interaction.guild.id, '_fish_ch', channel.id)
+        set_setting(interaction.guild.id, '_fish_msg', msg.id)
+        await interaction.followup.send(f'{channel.mention} 에 낚시 계산기를 설치했습니다.', ephemeral=True)
 
 
 async def setup(bot):
