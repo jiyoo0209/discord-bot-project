@@ -199,6 +199,32 @@ def update_rank_cnt(rank_name, amount, mode='set'):
         print(err_msg)
         return False, err_msg
 
+# 명예/우수 정원 설정 (길드원관리 [명예우수설정]) — user_rank 의 명예·우수를 지정값으로,
+#   일반 = 전체(활동 인원, 수식) − 길마 − 서마 − 명예 − 우수 로 맞춘다. 한 번의 batch 쓰기.
+@_locked
+def set_honor_excellent_cnt(honor, excel):
+    try:
+        ws = get_worksheet('user_rank')
+        rows = {r[0]: (i, r[1] if len(r) > 1 else '')
+                for i, r in enumerate(ws.get_all_values()[1:], start=2) if r and r[0]}
+        need = ('길마', '서마', '명예', '우수', '일반', '전체')
+        missing = [k for k in need if k not in rows]
+        if missing:
+            return False, f'user_rank 시트에 {", ".join(missing)} 행이 없어요 (`/초기화` 확인)'
+        total = _int(rows['전체'][1])
+        normal = total - _int(rows['길마'][1]) - _int(rows['서마'][1]) - honor - excel
+        if normal < 0:
+            return False, (f'명예 {honor} + 우수 {excel} 이(가) 전체 인원({total}명)에서 '
+                           f'길마·서마를 뺀 수를 넘어요.')
+        ws.update_cells([gspread.Cell(row=rows['명예'][0], col=2, value=honor),
+                         gspread.Cell(row=rows['우수'][0], col=2, value=excel),
+                         gspread.Cell(row=rows['일반'][0], col=2, value=normal)])
+        return True, f'명예 {honor}명 · 우수 {excel}명 · 일반 {normal}명으로 설정했어요 (전체 {total}명)'
+    except Exception as e:
+        print(f'오류: {e}')
+        return False, f'오류: {e}'
+
+
 # user_rank 시트에서 rank_name의 현재 rank_cnt 조회 [핼퍼 함수]
 def get_rank_cnt(rank_name):
     try:
