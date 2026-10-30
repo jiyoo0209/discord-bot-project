@@ -3,11 +3,13 @@
 *   [길드원 승인] 닉네임 팝업 → 시트 등록(/가입 과 동일) · 입장대기→일반 · 서버 닉네임 변경
 *   [게스트 승인] 입장대기→게스트 (시트 등록 없음)
 *   두 버튼 모두 길마·서마 전용. 승인 후 카드는 결과 + 승인자 + 시각으로 바뀌고 버튼은 사라짐.
+* 퇴장 시 같은 채널에 퇴장 카드 (프로필형 · 함께한 기간 · 시각)
 *   필요: 개발자 포털 Server Members Intent, 봇 역할이 입장대기/일반/게스트 보다 위.
 * date   2026.10.30
 '''
 import asyncio
 import time
+from datetime import datetime, timezone
 
 import discord
 from discord.ext import commands
@@ -21,6 +23,7 @@ SERVER_NAME = '마커'
 TITLE_EMOJI = '<:emoji_13:1486906955011461261>'   # 서버 벚꽃 이모지
 
 _ACCENT = discord.Colour(0x3FB8F3)   # 길드 대표색 (다른 카드와 통일)
+_LEAVE_ACCENT = discord.Colour(0x888780)   # 퇴장 카드는 회색으로 구분
 _NO_PERM = '승인 권한이 없습니다.'
 _busy = set()   # 승인 처리 중인 유저 ID (관리자 동시 클릭 방지)
 
@@ -53,12 +56,38 @@ def _card(member, number, body, footer, buttons=False):
 
 def _welcome_card(member, number):
     return _card(member, number, '관리자가 입장을 승인할 때까지 잠시만 기다려주세요 🙏',
-                 f'👥 {number}번째 멤버 · <t:{int(time.time())}:f>', buttons=True)
+                 f'<t:{int(time.time())}:f>', buttons=True)   # number 는 예전 카드 버튼 호환용(표시 안 함)
 
 
 def _done_card(member, number, label, approver):
     return _card(member, number, f'✅ {label} 승인 완료',
-                 f'👥 {number}번째 멤버 · 승인자 {approver.mention} · <t:{int(time.time())}:f>')
+                 f'승인자 {approver.mention} · <t:{int(time.time())}:f>')
+
+
+def _stay(joined_at):
+    '''서버 입장 시각 → 함께한 기간 문구 (모르면 None)'''
+    if joined_at is None:
+        return None
+    days = (datetime.now(timezone.utc) - joined_at).days
+    return f'{days}일' if days >= 1 else '하루 미만'
+
+
+def _leave_card(member):
+    '''퇴장 카드 — [제목/작별 인사 + 오른쪽 프로필] · 함께한 기간 · 시각 (나간 사람은 멘션이 깨질 수 있어 이름을 글자로)'''
+    name = discord.utils.escape_markdown(member.display_name)
+    head = discord.ui.TextDisplay(
+        f'## 👋 멤버가 떠났어요\n'
+        f'**{name}**님이 [ {SERVER_NAME} ]를 떠났어요.\n그동안 함께해 주셔서 고마웠어요 🌙')
+    stay = _stay(member.joined_at)
+    footer = (f'함께한 기간 {stay} · ' if stay else '') + f'<t:{int(time.time())}:f>'
+    v = discord.ui.LayoutView(timeout=None)
+    v.add_item(discord.ui.Container(
+        discord.ui.Section(head, accessory=discord.ui.Thumbnail(member.display_avatar.url)),
+        discord.ui.Separator(),
+        discord.ui.TextDisplay(f'-# {footer}'),
+        accent_colour=_LEAVE_ACCENT,
+    ))
+    return v
 
 
 async def _get_member(guild, uid):
@@ -213,6 +242,19 @@ class Welcome(commands.Cog):
                                allowed_mentions=discord.AllowedMentions(users=[member]))
         except Exception as e:
             print(f'[welcome] 입장 카드 발송 실패: {e}')
+
+
+    @commands.Cog.listener()
+    async def on_member_remove(self, member: discord.Member):
+        if member.bot:
+            return
+        channel = member.guild.get_channel(WELCOME_CHANNEL_ID)
+        if channel is None:
+            return
+        try:
+            await channel.send(view=_leave_card(member), allowed_mentions=discord.AllowedMentions.none())
+        except Exception as e:
+            print(f'[welcome] 퇴장 카드 발송 실패: {e}')
 
 
 async def setup(bot):
