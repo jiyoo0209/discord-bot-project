@@ -5,6 +5,7 @@
 *   [일요일 자정] 길퀘 미완료자 셋업 채널 리마인드 (기존 유지)
 *   [월요일 자정] 지난 주 경고 정산 — 매일완주(7회) -1 · 점령 -1 차감 후, 길퀘 미달 +1
 *   [월요일 자정] 3개월 지난 반영 완료(reflection_yn=Y) user_point 행 삭제
+*   [월요일 자정] 점령투표 채널에 그 주 토요일 점령 참여 투표 카드 게시 (vote/vote.py)
 * + /주간경고처리 : 수동 실행 (테스트/보정용)
 * author ENI
 * date   2026.07.16
@@ -51,6 +52,7 @@ class Batch(commands.Cog):
         # 자정 정각 발송이 실패했어도 그날 안에 매시간 재시도되도록 (가드키로 중복 방지)
         await self._weekly_warning()
         await self._purge_points()
+        await self._occupy_vote()
         await self._friday_reminder()
 
     @hourly.before_loop
@@ -67,6 +69,7 @@ class Batch(commands.Cog):
         if is_monday():
             await self._weekly_warning()
             await self._purge_points()
+            await self._occupy_vote()
 
     @midnight.before_loop
     async def _before_midnight(self):
@@ -98,6 +101,18 @@ class Batch(commands.Cog):
         if ok:
             set_setting('_global', '_purge_week', week_id)
         print(f'[batch] {msg}')
+
+    # 월요일 1회: 이번 주 토요일 점령 참여 투표 게시 (주 1회 가드, 실패 시 그날 매시간 재시도)
+    async def _occupy_vote(self):
+        if not is_monday():
+            return
+        week_id = week_range()[0]
+        if get_setting('_global', '_vote_week') == week_id:
+            return
+        cog = self.bot.get_cog('OccupyVote')
+        if cog is not None and await cog.post_vote():
+            set_setting('_global', '_vote_week', week_id)
+            print('[batch] 점령 참여 투표 게시 완료')
 
     # 금요일 1회: 이번 주 길퀘 미완료자(사유 등록자 제외)에게
     #   1) 개인 DM 리마인드 2) 리마인드 채널에 멘션 + 남은 횟수 목록 게시 (주 1회 가드)

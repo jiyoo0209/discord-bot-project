@@ -54,6 +54,7 @@ async def main():
         await bot.load_extension('panel.panel')
         await bot.load_extension('voice.voice')
         await bot.load_extension('welcome.welcome')
+        await bot.load_extension('vote.vote')
         await bot.load_extension('fishing.fishing')
         # 나중에 다른 파일도 이렇게 추가
 
