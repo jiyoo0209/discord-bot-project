@@ -9,6 +9,7 @@ load_dotenv()
 # message_content(특권 인텐트): 음성방 감시 채널의 글을 읽기 위해 필요 — 개발자 포털에서도 켜져 있어야 함
 intents = discord.Intents.default()
 intents.message_content = True
+intents.members = True   # 서버 입장 감지(입장 카드) — 개발자 포털 Server Members Intent 도 켜야 함
 bot = commands.Bot(command_prefix='/', intents=intents)
 
 _synced = False  # on_ready 는 재연결마다 불리므로 동기화 1회만
@@ -52,6 +53,7 @@ async def main():
         await bot.load_extension('batch.batch')
         await bot.load_extension('panel.panel')
         await bot.load_extension('voice.voice')
+        await bot.load_extension('welcome.welcome')
         await bot.load_extension('fishing.fishing')
         # 나중에 다른 파일도 이렇게 추가
 

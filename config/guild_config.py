@@ -12,7 +12,7 @@ import os
 import threading
 
 # 명령/권한에서 쓰는 논리 역할 키 (순서 = /역할확인 출력 순서)
-ROLE_KEYS = ['길마', '서마', '명예', '우수', '일반', '입장대기']
+ROLE_KEYS = ['길마', '서마', '명예', '우수', '일반', '입장대기', '게스트']
 
 _PATH = os.path.join(os.path.dirname(__file__), '..', 'guild_config.json')
 _lock = threading.Lock()
