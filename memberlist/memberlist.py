@@ -2,14 +2,13 @@
 * 길드원 목록 카드 (길드원관리 채널) — 등급별 명단 + 경고 횟수
 *   버튼: [탈퇴](닉네임 팝업 → 확인 카드) [명예우수집계] [명예우수설정](명예·우수 정원 팝업) [🔄](갱신)
 *   🔄 는 누구나, 나머지는 길마·서마. 탈퇴 완료 시 목록 자동 갱신.
-* + /길드원목록설치 : 지금 채널에 목록 카드 설치 (이전 카드는 삭제)
+* 봇 시작 시 길드원관리 채널에 카드를 자동 설치 (이미 있으면 그 카드를 최신으로 갱신)
 * date   2026.10.30
 '''
 import time
 import asyncio
 
 import discord
-from discord import app_commands
 from discord.ext import commands
 
 from sheet.sheet import (get_dashboard_records, calc_honor_excellent, set_honor_excellent_cnt,
@@ -17,6 +16,7 @@ from sheet.sheet import (get_dashboard_records, calc_honor_excellent, set_honor_
 from roleSetting.roleSetting import has_role
 from config.guild_config import get_setting, set_setting
 
+MEMBER_CHANNEL_ID = 1565561284252930119   # 길드원관리 채널
 TITLE = '<:emoji_13:1486906955011461261> 마커 길드원 목록'
 _ACCENT = discord.Colour(0x3FB8F3)
 _RANKS = [('길마', '👑'), ('서마', '🛡️'), ('명예', '🌟'), ('우수', '⭐'), ('일반', '🌱')]
@@ -188,29 +188,29 @@ class MemberList(commands.Cog):
     async def cog_load(self):
         self.bot.add_view(MemberListCard())   # 재시작 후에도 버튼 동작
 
-    @app_commands.command(name='길드원목록설치', description='(길마/서마) 이 채널에 길드원 목록 카드 설치')
-    @app_commands.guild_only()
-    async def install(self, interaction: discord.Interaction):
-        if not _is_staff(interaction):
-            await interaction.response.send_message(_NO_PERM, ephemeral=True)
+    # 봇 시작 시 자동 설치: 저장된 카드가 있으면 갱신, 없으면(삭제됐거나 처음) 새로 게시
+    @commands.Cog.listener()
+    async def on_ready(self):
+        if getattr(self, '_installed', False):
             return
-        await interaction.response.defer(ephemeral=True)
-        old_ch, old_msg = get_setting(interaction.guild.id, '_member_ch'), get_setting(interaction.guild.id, '_member_msg')
-        if old_ch and old_msg:   # 이전 카드 정리
-            try:
-                ch = interaction.guild.get_channel(int(old_ch)) or await self.bot.fetch_channel(int(old_ch))
-                await (await ch.fetch_message(int(old_msg))).delete()
-            except Exception:
-                pass
+        self._installed = True
         try:
+            channel = self.bot.get_channel(MEMBER_CHANNEL_ID) or await self.bot.fetch_channel(MEMBER_CHANNEL_ID)
             records = await asyncio.to_thread(get_dashboard_records)
-            msg = await interaction.channel.send(view=MemberListCard(records))
+            msg_id = get_setting(channel.guild.id, '_member_msg')
+            if msg_id and str(get_setting(channel.guild.id, '_member_ch')) == str(MEMBER_CHANNEL_ID):
+                try:
+                    msg = await channel.fetch_message(int(msg_id))
+                    await msg.edit(view=MemberListCard(records))
+                    return
+                except discord.NotFound:
+                    pass
+            msg = await channel.send(view=MemberListCard(records))
+            set_setting(channel.guild.id, '_member_ch', MEMBER_CHANNEL_ID)
+            set_setting(channel.guild.id, '_member_msg', msg.id)
+            print('[memberlist] 길드원 목록 카드 설치')
         except Exception as e:
-            await interaction.followup.send(f'설치 실패: {e}', ephemeral=True)
-            return
-        set_setting(interaction.guild.id, '_member_ch', interaction.channel.id)
-        set_setting(interaction.guild.id, '_member_msg', msg.id)
-        await interaction.followup.send('길드원 목록 카드를 설치했어요. 🔄 로 갱신할 수 있어요.', ephemeral=True)
+            print(f'[memberlist] 자동 설치 실패: {e}')
 
 
 async def setup(bot):
