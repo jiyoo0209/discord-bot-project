@@ -3,7 +3,7 @@
 *   [길드원 승인] 닉네임 팝업 → 시트 등록(/가입 과 동일) · 입장대기→일반 · 서버 닉네임 변경
 *   [게스트 승인] 입장대기→게스트 (시트 등록 없음)
 *   두 버튼 모두 길마·서마 전용. 승인 후 카드는 결과 + 승인자 + 시각으로 바뀌고 버튼은 사라짐.
-* 퇴장 시 같은 채널에 퇴장 카드 (프로필형 · 함께한 기간 · 시각)
+* 퇴장 시 퇴장 채널에 퇴장 카드 (프로필형 · 함께한 기간 · 시각)
 *   필요: 개발자 포털 Server Members Intent, 봇 역할이 입장대기/일반/게스트 보다 위.
 * date   2026.10.30
 '''
@@ -19,6 +19,7 @@ from roleSetting.roleSetting import has_role
 from config.guild_config import get_role_id
 
 WELCOME_CHANNEL_ID = 1414425194650406923
+LEAVE_CHANNEL_ID = 1414432294248120351     # 퇴장 카드 채널
 SERVER_NAME = '마커'
 TITLE_EMOJI = '<:emoji_13:1486906955011461261>'   # 서버 벚꽃 이모지
 
@@ -248,7 +249,7 @@ class Welcome(commands.Cog):
     async def on_member_remove(self, member: discord.Member):
         if member.bot:
             return
-        channel = member.guild.get_channel(WELCOME_CHANNEL_ID)
+        channel = member.guild.get_channel(LEAVE_CHANNEL_ID)
         if channel is None:
             return
         try:
