@@ -23,7 +23,7 @@ from sheet.sheet import (
     calc_honor_excellent, get_incomplete_members, update_rank_cnt, get_spreadsheet_url,
     process_weekly_warnings,
 )
-from roleSetting.roleSetting import has_role
+from roleSetting.roleSetting import has_role, sync_rank_roles, rank_change_text
 from config.guild_config import (
     set_setting, get_setting, get_role_id, set_role_id, get_guild_config, ROLE_KEYS,
 )
@@ -729,14 +729,16 @@ class _ManageRow2(discord.ui.ActionRow):
     @discord.ui.button(label='명예우수계산', style=discord.ButtonStyle.primary)
     async def honor(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer()
-        ok, honor, excel, n = await asyncio.to_thread(calc_honor_excellent)
+        ok, honor, excel, n, changes = await asyncio.to_thread(calc_honor_excellent)
         if not ok:
             await interaction.edit_original_response(
                 view=_result('시트 오류로 처리하지 못했습니다.', accent=discord.Colour.red()))
             return
+        fails = await sync_rank_roles(interaction.guild, changes)
         text = ('## 명예/우수 계산 결과\n'
                 '**명예**: ' + (', '.join(honor) or '없음') + '\n'
-                '**우수**: ' + (', '.join(excel) or '없음') + '\n'
+                '**우수**: ' + (', '.join(excel) or '없음') +
+                rank_change_text(changes, fails) + '\n'
                 f'-# {n}개 포인트 반영 완료 (reflection_yn → Y)')
         await interaction.edit_original_response(view=_result(text[:3900]))
 

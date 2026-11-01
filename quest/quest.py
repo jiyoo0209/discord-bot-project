@@ -13,7 +13,7 @@ from sheet.sheet import (
     get_incomplete_members, get_week_daily_points, add_deny_weeks,
 )
 from dashboard.dashboard import WEEKLY_QUEST_LIMIT, _range_date
-from roleSetting.roleSetting import has_role, members_autocomplete, user_autocomplete
+from roleSetting.roleSetting import has_role, members_autocomplete, sync_rank_roles, rank_change_text, user_autocomplete
 from util.dates import today_int, this_saturday, parse_date_arg, kst_today
 from datetime import timedelta, datetime
 from util.dates import KST
@@ -207,13 +207,15 @@ class Quest(commands.Cog):
             await interaction.response.send_message('길마/서마만 사용 가능합니다!', ephemeral=True)
             return
         await interaction.response.defer(ephemeral=True)
-        ok, honor, excel, n = await asyncio.to_thread(calc_honor_excellent)
+        ok, honor, excel, n, changes = await asyncio.to_thread(calc_honor_excellent)
         if not ok:
             await interaction.followup.send('시트 오류로 처리하지 못했습니다.', ephemeral=True)
             return
+        fails = await sync_rank_roles(interaction.guild, changes)
         embed = discord.Embed(title='명예/우수 계산 결과', color=0x5865F2)
         embed.add_field(name='명예', value='\n'.join(f'- {x}' for x in honor) or '- 없음', inline=False)
         embed.add_field(name='우수', value='\n'.join(f'- {x}' for x in excel) or '- 없음', inline=False)
+        embed.add_field(name='등급 변경', value=rank_change_text(changes, fails).strip()[:1024], inline=False)
         embed.set_footer(text=f'{n}개 포인트 반영 완료 (reflection_yn → Y)')
         await interaction.followup.send(embed=embed, ephemeral=True)
 

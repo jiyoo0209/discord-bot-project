@@ -57,6 +57,49 @@ RANK_CHOICES = [app_commands.Choice(name=r, value=r) for r in VALID_RANKS]
 ROLE_KEY_CHOICES = [app_commands.Choice(name=k, value=k) for k in ROLE_KEYS]
 
 
+async def sync_rank_roles(guild, changes):
+    '''명예우수집계 등급 변경을 디스코드 역할에 반영.
+       changes: [(닉, discord_id, 이전등급, 새등급)] → 명예/우수/일반 역할 중 새 등급만 남기고 나머지 제거.
+       반환: 실패 문구 목록'''
+    fails = []
+    ids = {k: get_role_id(guild.id, k) for k in ('명예', '우수', '일반')}
+    roles = {k: guild.get_role(v) for k, v in ids.items() if v}
+    for name, did, old, new in changes:
+        if new not in roles:
+            fails.append(f'{name}: `{new}` 역할 매핑 없음')
+            continue
+        member = guild.get_member(int(did)) if str(did).isdigit() else None
+        if member is None and str(did).isdigit():
+            try:
+                member = await guild.fetch_member(int(did))
+            except Exception:
+                member = None
+        if member is None:
+            fails.append(f'{name}: 서버에서 찾을 수 없음')
+            continue
+        try:
+            remove = [r for k, r in roles.items() if k != new and r in member.roles]
+            if remove:
+                await member.remove_roles(*remove, reason='명예우수집계')
+            if roles[new] not in member.roles:
+                await member.add_roles(roles[new], reason='명예우수집계')
+        except discord.Forbidden:
+            fails.append(f'{name}: 권한 부족 (봇 역할 위치 확인)')
+        except Exception as e:
+            fails.append(f'{name}: {e}')
+    return fails
+
+
+def rank_change_text(changes, fails):
+    '''집계 결과 메시지에 붙일 등급 변경 요약'''
+    if not changes:
+        return '\n-# 등급 변경 없음'
+    text = '\n**등급 변경**: ' + ', '.join(f'{n} {o or "미지정"}→{w}' for n, _d, o, w in changes)
+    if fails:
+        text += '\n⚠️ 역할 변경 실패: ' + ', '.join(fails)
+    return text
+
+
 def has_role(interaction: discord.Interaction, key: str) -> bool:
     """명령을 친 사람이 이 서버에서 key(길마/서마/…)에 매핑된 역할을 가졌는지.
     서버 소유자는 역할 매핑 전에도 '모든' 게이트를 통과한다 → 최초 /셋업 부트스트랩 편의

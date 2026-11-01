@@ -605,7 +605,8 @@ def _pt(p):
 # 명예/우수 계산 (명세 #7): 날짜 무관 reflection_yn=N 포인트를 멤버별 합산 → 길마/서마 '등급'만 제외 →
 #   점수 높은 순으로 명예(정원) → 우수(정원) 배정. 계산에 쓴 N 행 전부 Y 로 마감.
 #   이름·등급의 앞뒤 공백은 무시. user 탭에 없는 이름도 제외하지 않음(길마/서마로 확인된 사람만 제외).
-#   반환: (ok, 명예['닉 (점수점)'...], 우수[...], 처리행수)
+#   + user 탭 rank_name 갱신: 뽑힌 사람 → 명예/우수, 기존 명예/우수인데 안 뽑힘 → 일반 (길마/서마/탈퇴는 그대로)
+#   반환: (ok, 명예['닉 (점수점)'...], 우수[...], 처리행수, 등급변경[(닉, discord_id, 이전, 이후)...])
 @_locked
 def calc_honor_excellent():
     try:
@@ -616,11 +617,12 @@ def calc_honor_excellent():
         rank_cnt = {r[0]: _int(r[1]) for r in rank_ws.get_all_values()[1:] if r and r[0]}
         honor_n, excel_n = rank_cnt.get('명예', 0), rank_cnt.get('우수', 0)
 
-        rank_of = {}
-        for r in user_ws.get_all_values()[1:]:
+        rank_of, user_rows = {}, []   # user_rows: (행번호, 닉, 등급, discord_id)
+        for i, r in enumerate(user_ws.get_all_values()[1:], start=2):
             name = r[0].strip() if r else ''
             if name:
                 rank_of[name] = r[2].strip() if len(r) > 2 else ''
+                user_rows.append((i, name, rank_of[name], r[3].strip() if len(r) > 3 else ''))
 
         refl = defaultdict(float)
         pending_rows = []  # reflection_yn=N 인 1-based 행 인덱스
@@ -640,6 +642,21 @@ def calc_honor_excellent():
         honor = [f'{n} ({_pt(p)}점)' for p, n in cand[:honor_n]]
         excel = [f'{n} ({_pt(p)}점)' for p, n in cand[honor_n:honor_n + excel_n]]
 
+        # user 탭 등급 갱신 (점수 마감보다 먼저 — 마감이 실패해도 재실행 시 같은 결과로 다시 맞춰짐)
+        honor_set = {n for _, n in cand[:honor_n]}
+        excel_set = {n for _, n in cand[honor_n:honor_n + excel_n]}
+        changes, rank_cells = [], []
+        for row, name, old, did in user_rows:
+            if old in ('길마', '서마', '탈퇴'):
+                continue
+            new = ('명예' if name in honor_set else '우수' if name in excel_set
+                   else '일반' if old in ('명예', '우수') else old)
+            if new != old:
+                changes.append((name, did, old, new))
+                rank_cells.append(gspread.Cell(row=row, col=3, value=new))
+        if rank_cells:
+            user_ws.update_cells(rank_cells)
+
         # 계산에 반영된 행 전부 reflection_yn=Y 로 마감 (E열=5).
         #   ⚠️ 행별 update_cell 루프는 중간 실패 시 일부만 Y 로 커밋돼 포인트가 영구 유실된다.
         #   update_cells 는 단일 batch 요청이라 성공/실패가 전부-아니면-전무(원자적).
@@ -647,10 +664,15 @@ def calc_honor_excellent():
             cells = [gspread.Cell(row=r, col=5, value='Y') for r in pending_rows]
             point_ws.update_cells(cells)
 
-        return True, honor, excel, len(pending_rows)
+        if rank_cells:
+            try:
+                _sort_users()   # 등급이 바뀌었으니 user 탭을 등급순으로 정돈
+            except Exception as e:
+                print(f'[sort] 건너뜀: {e}')
+        return True, honor, excel, len(pending_rows), changes
     except Exception as e:
         print(f'오류: {e}')
-        return False, [], [], 0
+        return False, [], [], 0, []
 
 
 # 월요일 자정 배치 — 오래된 반영 완료 포인트 정리
