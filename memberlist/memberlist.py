@@ -20,6 +20,12 @@ MEMBER_CHANNEL_ID = 1565561284252930119   # 길드원관리 채널
 TITLE = '<:emoji_13:1486906955011461261> 마커 길드원 목록'
 _ACCENT = discord.Colour(0x3FB8F3)
 _RANKS = [('길마', '👑'), ('서마', '🛡️'), ('명예', '🌟'), ('우수', '⭐'), ('일반', '🌱')]
+# 닉네임 앞 등급 표시 — 서버 커스텀 이모지. 없는 등급은 글자 배지(`등급`)로 표시
+RANK_BADGE = {
+    '길마': '<:master:1566481276133703751>',
+    '서마': '<:sub_master:1566481372254707923>',
+    '명예': '<:honor:1566476386707832883>',
+}
 _NO_PERM = '길마/서마만 사용 가능합니다!'
 
 
@@ -52,7 +58,8 @@ def _body(records):
         if not members:
             continue
         total += len(members)
-        out += [f'`{rank}` {discord.utils.escape_markdown(n)}' + (f'  ⚠️ {w}' if w > 0 else '')
+        badge = RANK_BADGE.get(rank, f'`{rank}`')
+        out += [f'{badge} {discord.utils.escape_markdown(n)}' + (f'  ⚠️ {w}' if w > 0 else '')
                 for n, w in members]
     text = '\n'.join(out) or '-# 등록된 길드원이 없어요'
     if len(text) > 3500:
