@@ -1,7 +1,8 @@
 '''
 * 점령 참여 투표 — 매주 월요일 자정 배치가 점령투표 채널에 그 주 토요일 투표 카드를 게시
 *   [✅ 참여] [❌ 불참] [💬 기타(사유 팝업)] — 누구나, 관리자 확인 전까지 언제든 변경 가능
-*   [🔒 관리자 확인] — 길마·서마. 투표 마감 + 참여 인원을 /점령 과 같이 시트 기록(8점, 그 주 토요일)
+*   [🔒 관리자 확인] — 길마·서마. 체크박스 팝업으로 점수 지급 멤버 선택(참여=기본 체크, 기타=선택)
+*                    → 투표 마감 + 체크된 인원을 /점령 과 같이 시트 기록(8점, 그 주 토요일)
 *   저장: 별도 시트 없음 — 명단은 카드 메시지 자체가 원본. 버튼 custom_id 에 토요일 날짜를 담아 재시작 후에도 동작.
 *   이름: 시트 등록자는 테런 닉네임, 미등록자는 서버 닉네임 (미등록자는 시트 기록에서 제외됨)
 * + /점령투표 : 이번 주 투표 카드를 지금 수동 게시 (길마·서마)
@@ -55,7 +56,7 @@ def _title(sat):
 
 # ── 상태 <-> 카드 텍스트 ─────────────────────────────────────
 #   state = {YES: [줄...], NO: [줄...], ETC: [줄...]}  줄 = 이스케이프된 '이름' 또는 '이름: 사유'
-def _render(sat, state, closed_by=None, recorded=0):
+def _render(sat, state, closed_by=None, recorded=()):
     counts = f'✅ 참여 {len(state[YES])} · ❌ 불참 {len(state[NO])} · 💬 기타 {len(state[ETC])}'
     body = []
     for k in (YES, NO, ETC):
@@ -74,11 +75,18 @@ def _render(sat, state, closed_by=None, recorded=0):
         items += [row, discord.ui.TextDisplay('-# 관리자 확인 전까지 언제든 바꿀 수 있어요')]
     else:
         items.append(discord.ui.TextDisplay(
-            f'-# 🔒 투표 마감 · 점령 {recorded}명 시트 기록 완료 · 확인자 {closed_by.mention}\n'
+            f'-# 🔒 투표 마감 · 점령 {len(recorded)}명 시트 기록 완료{_names_note(recorded)} · 확인자 {closed_by.mention}\n'
             f'-# <t:{int(time.time())}:f>'))
     v = discord.ui.LayoutView(timeout=None)
     v.add_item(discord.ui.Container(*items, accent_colour=_ACCENT))
     return v
+
+
+def _names_note(names, limit=1200):
+    if not names:
+        return ''
+    text = ', '.join(_esc(n) for n in names)
+    return f' ({text[:limit].rsplit(", ", 1)[0] + " …" if len(text) > limit else text})'
 
 
 def _walk(components):
@@ -189,6 +197,63 @@ class VoteButton(discord.ui.DynamicItem[discord.ui.Button],
         await _apply_vote(interaction, self.choice, self.sat)
 
 
+async def _close_vote(interaction, msg_ref, sat, names):
+    '''최신 카드를 다시 읽어 마감 + names 를 시트 기록. 응답(defer)은 호출측에서 끝낸 상태.'''
+    async with _lock(msg_ref.id):
+        message = await msg_ref.channel.fetch_message(msg_ref.id)
+        state, closed = _parse(message)
+        if closed:
+            await interaction.followup.send('이미 마감된 투표예요.', ephemeral=True)
+            return
+        known, unknown = [], []
+        if names:
+            ok, known, unknown = await asyncio.to_thread(add_points, names, OCCUPY_POINT, 'Y', sat)
+            if not ok:
+                await interaction.followup.send('시트 오류로 기록하지 못했어요. 잠시 후 다시 눌러주세요.',
+                                                ephemeral=True)
+                return   # 카드는 그대로 (재시도 가능)
+        await message.edit(view=_render(sat, state, closed_by=interaction.user, recorded=known),
+                           allowed_mentions=discord.AllowedMentions.none())
+    note = f'점령 {len(known)}명을 시트에 기록했어요.'
+    if unknown:
+        note += '\n⚠️ 시트 미등록이라 제외: ' + ', '.join(unknown)
+    await interaction.followup.send(note, ephemeral=True)
+
+
+class PayModal(discord.ui.Modal):
+    '''점수 지급 멤버 체크 — 참여(기본 체크) / 기타(기본 해제), 묶음당 10명 · 최대 5묶음'''
+    def __init__(self, sat, msg_ref, state, registered):
+        s = str(sat)
+        super().__init__(title=f'{int(s[4:6])}월 {int(s[6:8])}일(토) 점령 점수 지급')
+        self.sat, self.msg_ref = sat, msg_ref
+        self.names = []    # 옵션 value(인덱스) -> 이름
+        self.groups = []
+        entries = [(YES, _unesc(ln), None) for ln in state[YES]] + \
+                  [(ETC, _unesc(_owner_of(ln)), _unesc(ln.partition(': ')[2]) or None) for ln in state[ETC]]
+        for kind, chunk_label, hint in ((YES, '참여 인원', '실제로 참여하지 않은 사람은 체크를 풀어주세요'),
+                                        (ETC, '기타', '실제로 참여했다면 체크해주세요')):
+            items = [(n, why) for k, n, why in entries if k == kind]
+            chunks = [items[i:i + 10] for i in range(0, len(items), 10)]
+            for ci, chunk in enumerate(chunks):
+                if len(self.groups) >= 5:
+                    break
+                group = discord.ui.CheckboxGroup(required=False, min_values=0, max_values=len(chunk))
+                for n, why in chunk:
+                    desc = '시트 미등록 — 체크해도 기록되지 않아요' if registered is not None and n not in registered \
+                        else (why[:100] if why else None)
+                    group.add_option(label=n[:100], value=str(len(self.names)), description=desc,
+                                     default=(kind == YES))
+                    self.names.append(n)
+                text = chunk_label + (f' ({ci + 1}/{len(chunks)})' if len(chunks) > 1 else '')
+                self.groups.append(group)
+                self.add_item(discord.ui.Label(text=text, description=hint, component=group))
+
+    async def on_submit(self, interaction: discord.Interaction):
+        picked = [self.names[int(v)] for g in self.groups for v in g.values]
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        await _close_vote(interaction, self.msg_ref, self.sat, picked)
+
+
 class ConfirmButton(discord.ui.DynamicItem[discord.ui.Button], template=r'ov_ok:(?P<sat>[0-9]{8})'):
     def __init__(self, sat: int):
         super().__init__(discord.ui.Button(label='관리자 확인', emoji='🔒', style=discord.ButtonStyle.primary,
@@ -203,28 +268,21 @@ class ConfirmButton(discord.ui.DynamicItem[discord.ui.Button], template=r'ov_ok:
         if not _is_staff(interaction):
             await interaction.response.send_message('확인 권한이 없습니다.', ephemeral=True)
             return
-        await interaction.response.defer(ephemeral=True, thinking=True)
-        msg_ref = interaction.message
-        async with _lock(msg_ref.id):
-            message = await msg_ref.channel.fetch_message(msg_ref.id)
-            state, closed = _parse(message)
-            if closed:
-                await interaction.followup.send('이미 마감된 투표예요.', ephemeral=True)
-                return
-            names = [_unesc(ln) for ln in state[YES]]
-            known, unknown = [], []
-            if names:
-                ok, known, unknown = await asyncio.to_thread(add_points, names, OCCUPY_POINT, 'Y', self.sat)
-                if not ok:
-                    await interaction.followup.send('시트 오류로 기록하지 못했어요. 잠시 후 다시 눌러주세요.',
-                                                    ephemeral=True)
-                    return   # 카드는 그대로 (재시도 가능)
-            await message.edit(view=_render(self.sat, state, closed_by=interaction.user, recorded=len(known)),
-                               allowed_mentions=discord.AllowedMentions.none())
-        note = f'점령 {len(known)}명을 시트에 기록했어요.'
-        if unknown:
-            note += '\n⚠️ 시트 미등록이라 제외: ' + ', '.join(unknown)
-        await interaction.followup.send(note, ephemeral=True)
+        state, closed = _parse(interaction.message)
+        if closed:
+            await interaction.response.send_message('이미 마감된 투표예요.', ephemeral=True)
+            return
+        if not state[YES] and not state[ETC]:   # 고를 사람이 없으면 팝업 없이 바로 마감
+            await interaction.response.defer(ephemeral=True, thinking=True)
+            await _close_vote(interaction, interaction.message, self.sat, [])
+            return
+        registered = None
+        try:   # 시트 미등록 표시용 (팝업은 3초 안에 띄워야 해서 짧게만 기다림)
+            users = (await asyncio.wait_for(asyncio.to_thread(get_dashboard_records), 1.5))[0]
+            registered = {r[0] for r in users if r and r[0] and (len(r) < 3 or r[2] != '탈퇴')}
+        except Exception:
+            pass
+        await interaction.response.send_modal(PayModal(self.sat, interaction.message, state, registered))
 
 
 class OccupyVote(commands.Cog):
