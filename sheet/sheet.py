@@ -590,8 +590,22 @@ def add_deny_reason(user_name, reason):
         return False, f'오류: {e}'
 
 
-# 명예/우수 계산 (명세 #7): reflection_yn=N 포인트 합산 → 현재 명예/우수 인원수만큼 상위 배정,
-#   계산에 쓴 reflection_yn=N 행 전부 Y 로 마감. 길마/서마 제외. 반환: (ok, 명예리스트, 우수리스트, 처리행수)
+def _num(v):
+    '''점수 칸 → 숫자 (빈칸·문자는 0, '3.5'·'1,000' 도 허용)'''
+    try:
+        return float(str(v).replace(',', '').strip())
+    except (ValueError, AttributeError):
+        return 0.0
+
+
+def _pt(p):
+    return str(int(p)) if float(p).is_integer() else f'{p:g}'
+
+
+# 명예/우수 계산 (명세 #7): 날짜 무관 reflection_yn=N 포인트를 멤버별 합산 → 길마/서마 '등급'만 제외 →
+#   점수 높은 순으로 명예(정원) → 우수(정원) 배정. 계산에 쓴 N 행 전부 Y 로 마감.
+#   이름·등급의 앞뒤 공백은 무시. user 탭에 없는 이름도 제외하지 않음(길마/서마로 확인된 사람만 제외).
+#   반환: (ok, 명예['닉 (점수점)'...], 우수[...], 처리행수)
 @_locked
 def calc_honor_excellent():
     try:
@@ -604,28 +618,27 @@ def calc_honor_excellent():
 
         rank_of = {}
         for r in user_ws.get_all_values()[1:]:
-            name = r[0] if r else ''
-            rank = r[2] if len(r) > 2 else ''
-            if name and rank != '탈퇴':
-                rank_of[name] = rank
+            name = r[0].strip() if r else ''
+            if name:
+                rank_of[name] = r[2].strip() if len(r) > 2 else ''
 
-        refl = defaultdict(int)
+        refl = defaultdict(float)
         pending_rows = []  # reflection_yn=N 인 1-based 행 인덱스
         for i, r in enumerate(point_ws.get_all_values()[1:], start=2):
             reflect = (r[4].strip().upper() if len(r) > 4 else '')
             if reflect == 'N':
                 pending_rows.append(i)
-                name = r[0] if r else ''
+                name = r[0].strip() if r else ''
                 if name:
-                    refl[name] += _int(r[2]) if len(r) > 2 else 0
+                    refl[name] += _num(r[2]) if len(r) > 2 else 0
 
         EXCLUDE = ('길마', '서마')
         cand = sorted(
             ((p, n) for n, p in refl.items()
-             if p > 0 and n in rank_of and rank_of[n] not in EXCLUDE),
+             if p > 0 and rank_of.get(n, '') not in EXCLUDE),
             key=lambda x: (-x[0], x[1]))
-        honor = [n for _, n in cand[:honor_n]]
-        excel = [n for _, n in cand[honor_n:honor_n + excel_n]]
+        honor = [f'{n} ({_pt(p)}점)' for p, n in cand[:honor_n]]
+        excel = [f'{n} ({_pt(p)}점)' for p, n in cand[honor_n:honor_n + excel_n]]
 
         # 계산에 반영된 행 전부 reflection_yn=Y 로 마감 (E열=5).
         #   ⚠️ 행별 update_cell 루프는 중간 실패 시 일부만 Y 로 커밋돼 포인트가 영구 유실된다.

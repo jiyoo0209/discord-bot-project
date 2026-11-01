@@ -10,7 +10,7 @@ from discord import app_commands
 from discord.ext import commands
 from datetime import date, timedelta
 from collections import defaultdict
-from sheet.sheet import get_dashboard_records, get_worksheet, _write_lock
+from sheet.sheet import get_dashboard_records, get_worksheet, _write_lock, _num
 from roleSetting.roleSetting import has_role
 from config.guild_config import set_setting, get_setting
 from util.dates import kst_today
@@ -100,6 +100,7 @@ def load_roster(users):
     rank_of, warning_of = {}, {}
     for r in users:
         name, warning, rank = (r + ['', '', ''])[:3]   # 짧은 행도 안전하게 언팩
+        name, rank = name.strip(), rank.strip()          # 앞뒤 공백 무시 (집계와 동일)
         if not name or rank == RANK_INACTIVE:
             continue
         rank_of[name] = rank
@@ -116,6 +117,7 @@ def collect_points(points, wk_start, wk_end):
         defaultdict(int), defaultdict(int), defaultdict(int), defaultdict(int))
     for r in points:
         name, d, pt, capture, reflect = (r + ['', '', '', '', ''])[:5]
+        name = name.strip()
         if not name:
             continue
         d, pt = _int(d), _int(pt)
@@ -125,7 +127,7 @@ def collect_points(points, wk_start, wk_end):
                 week_points[name] += pt
                 quest_cnt[name] += 1
         if reflect.strip().upper() == 'N':
-            refl_points[name] += pt
+            refl_points[name] += _num(r[2]) if len(r) > 2 else 0   # 명예우수집계와 같은 규칙(소수 허용)
     return quest_cnt, week_points, refl_points, range_total
 
 def this_week_denied(denies, wk_start, wk_end):
@@ -179,7 +181,7 @@ def section_forecast(rank_of, refl_points, rank_cnt):
     excel_n = rank_cnt.get('우수', 0)
     cand = sorted(
         ((p, n) for n, p in refl_points.items()
-         if p > 0 and n in rank_of and rank_of[n] not in RANK_EXCLUDE),
+         if p > 0 and rank_of.get(n) not in RANK_EXCLUDE),   # 명예우수집계와 동일: 길마/서마 등급만 제외
         key=lambda x: (-x[0], x[1]))
     honor = [n for _, n in cand[:honor_n]]
     excel = [n for _, n in cand[honor_n:honor_n + excel_n]]
