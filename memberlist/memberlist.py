@@ -188,7 +188,9 @@ class MemberList(commands.Cog):
     async def cog_load(self):
         self.bot.add_view(MemberListCard())   # 재시작 후에도 버튼 동작
 
-    # 봇 시작 시 자동 설치: 저장된 카드가 있으면 갱신, 없으면(삭제됐거나 처음) 새로 게시
+    # 봇 시작 시 자동 설치: 채널에 이미 목록 카드가 있으면 그걸 갱신(새로 올리지 않음), 없을 때만 게시.
+    #   저장된 메시지 ID 가 없어도(설정 파일 교체 등) 채널 최근 메시지에서 봇의 목록 카드를 찾아 재사용하고,
+    #   예전에 중복으로 올라간 목록 카드는 정리한다.
     @commands.Cog.listener()
     async def on_ready(self):
         if getattr(self, '_installed', False):
@@ -197,20 +199,32 @@ class MemberList(commands.Cog):
         try:
             channel = self.bot.get_channel(MEMBER_CHANNEL_ID) or await self.bot.fetch_channel(MEMBER_CHANNEL_ID)
             records = await asyncio.to_thread(get_dashboard_records)
-            msg_id = get_setting(channel.guild.id, '_member_msg')
-            if msg_id and str(get_setting(channel.guild.id, '_member_ch')) == str(MEMBER_CHANNEL_ID):
-                try:
-                    msg = await channel.fetch_message(int(msg_id))
-                    await msg.edit(view=MemberListCard(records))
-                    return
-                except discord.NotFound:
-                    pass
-            msg = await channel.send(view=MemberListCard(records))
+            cards = [m async for m in channel.history(limit=100)
+                     if m.author.id == self.bot.user.id and _is_list_card(m)]   # 최신순
+            if cards:
+                keep = cards[0]
+                for old in cards[1:]:
+                    try:
+                        await old.delete()
+                    except Exception:
+                        pass
+                await keep.edit(view=MemberListCard(records))
+            else:
+                keep = await channel.send(view=MemberListCard(records))
+                print('[memberlist] 길드원 목록 카드 설치')
             set_setting(channel.guild.id, '_member_ch', MEMBER_CHANNEL_ID)
-            set_setting(channel.guild.id, '_member_msg', msg.id)
-            print('[memberlist] 길드원 목록 카드 설치')
+            set_setting(channel.guild.id, '_member_msg', keep.id)
         except Exception as e:
             print(f'[memberlist] 자동 설치 실패: {e}')
+
+
+def _is_list_card(message):
+    '''봇 메시지가 길드원 목록 카드인지 (🔄 버튼 custom_id 로 판별)'''
+    def walk(cs):
+        for c in cs or []:
+            yield c
+            yield from walk(getattr(c, 'children', None))
+    return any(getattr(c, 'custom_id', None) == 'ml_refresh' for c in walk(message.components))
 
 
 async def setup(bot):
