@@ -61,7 +61,8 @@ def _body(records):
             continue
         total += len(members)
         badge = RANK_BADGE.get(rank, f'`{rank}`')
-        out += [f'{badge} {discord.utils.escape_markdown(n)}' + (f'  ⚠️ {w}' if w > 0 else '')
+        # '### ' 소제목 크기 — 디스코드는 글자와 함께 쓴 이모지를 글자 크기로 그려서, 줄 전체를 키워 이모지도 크게
+        out += [f'### {badge} {discord.utils.escape_markdown(n)}' + (f'  ⚠️ {w}' if w > 0 else '')
                 for n, w in members]
     text = '\n'.join(out) or '-# 등록된 길드원이 없어요'
     if len(text) > 3500:
