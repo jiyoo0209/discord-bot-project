@@ -35,7 +35,8 @@ def _int(v):
 
 
 def _body(records):
-    '''등급별 명단 (등급 순서 → 닉 가나다). 경고 있는 사람만 ⚠️ 횟수. 반환: (본문, 총원)'''
+    '''한 줄 목록 — 닉네임 앞에 등급 배지(인라인 코드), 등급 순서 → 닉 가나다. 경고 있는 사람만 ⚠️ 횟수.
+       반환: (본문, 총원)'''
     users = records[0]
     groups = {}
     for r in users:
@@ -45,15 +46,14 @@ def _body(records):
             continue
         groups.setdefault(rank or '미지정', []).append((name, warn))
     order = [k for k, _ in _RANKS] + sorted(k for k in groups if k not in dict(_RANKS))
-    emoji = dict(_RANKS)
     out, total = [], 0
     for rank in order:
         members = sorted(groups.get(rank, []))
         if not members:
             continue
         total += len(members)
-        out.append(f'**{emoji.get(rank, "•")} {rank}** ({len(members)})')
-        out += [f'- {discord.utils.escape_markdown(n)}' + (f'  ⚠️ {w}' if w > 0 else '') for n, w in members]
+        out += [f'`{rank}` {discord.utils.escape_markdown(n)}' + (f'  ⚠️ {w}' if w > 0 else '')
+                for n, w in members]
     text = '\n'.join(out) or '-# 등록된 길드원이 없어요'
     if len(text) > 3500:
         text = text[:3480].rsplit('\n', 1)[0] + '\n… (이하 생략)'
