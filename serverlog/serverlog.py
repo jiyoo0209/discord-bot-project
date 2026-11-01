@@ -36,6 +36,11 @@ def _dur(sec):
     return f'{m}분' if m else '1분 미만'
 
 
+def _who(user):
+    '''멘션 대신 서버 닉네임을 굵은 글자로 — 임베드 안 멘션은 보는 사람 앱에 따라 <@ID> 로 깨져 보임'''
+    return f'**{discord.utils.escape_markdown(user.display_name)}**'
+
+
 def _embed(user, colour, text, footer=None, thumb=None):
     '''MEE6 로그와 같은 구성: 작성자(사용자명+프로필) · 내용 · (하단 문구) · 시각'''
     e = discord.Embed(description=text, colour=colour, timestamp=_now())
@@ -68,16 +73,16 @@ class ServerLog(commands.Cog):
         if before.channel is None:
             self.voice_since[member.id] = _now()
             await self._send(_embed(member, C_JOIN,
-                                    f'📥 {member.mention} 님이 음성채널에 들어왔어요 {after.channel.mention}'))
+                                    f'📥 {_who(member)} 님이 음성채널에 들어왔어요 {after.channel.mention}'))
         elif after.channel is None:
             since = self.voice_since.pop(member.id, None)
             await self._send(_embed(member, C_LEAVE,
-                                    f'📤 {member.mention} 님이 음성채널에서 나갔어요 {before.channel.mention}',
+                                    f'📤 {_who(member)} 님이 음성채널에서 나갔어요 {before.channel.mention}',
                                     footer=f'머문 시간 {_dur((_now() - since).total_seconds())}' if since else None))
         else:
             self.voice_since[member.id] = _now()   # 머문 시간은 채널 기준
             await self._send(_embed(member, C_MOVE,
-                                    f'🔀 {member.mention} 님이 음성채널을 옮겼어요 '
+                                    f'🔀 {_who(member)} 님이 음성채널을 옮겼어요 '
                                     f'{before.channel.mention} → {after.channel.mention}'))
 
     # ── 메시지 삭제 (지정 채널) ─────────────────────────────
@@ -100,7 +105,7 @@ class ServerLog(commands.Cog):
         if msg.attachments:
             body += '\n**첨부**\n' + '\n'.join(f'- {a.filename}' for a in msg.attachments[:10])
         await self._send(_embed(msg.author, C_DELETE,
-                                f'🗑️ {msg.author.mention} 님의 메시지가 삭제됐어요 {where}\n**내용**\n{body}',
+                                f'🗑️ {_who(msg.author)} 님의 메시지가 삭제됐어요 {where}\n**내용**\n{body}',
                                 footer=f'작성 {_hm(msg.created_at)}'))
 
     # ── 프로필 사진 / 이름 변경 ─────────────────────────────
@@ -137,12 +142,12 @@ class ServerLog(commands.Cog):
 
     async def _avatar_log(self, member, before_url, after_url, label):
         await self._send(_embed(member, C_PROFILE,
-                                f'🖼️ {member.mention} 님이 {label}을 바꿨어요\n'
+                                f'🖼️ {_who(member)} 님이 {label}을 바꿨어요\n'
                                 f'**{label}**\n[이전]({before_url}) → [변경 후]({after_url})',
                                 thumb=after_url))
 
     async def _name_log(self, member, changes):
-        lines = [f'✏️ {member.mention} 님이 이름을 바꿨어요']
+        lines = [f'✏️ {_who(member)} 님이 이름을 바꿨어요']
         for label, old, new in changes:
             lines.append(f'**{label}**\n{discord.utils.escape_markdown(old or "(없음)")} → '
                          f'{discord.utils.escape_markdown(new or "(없음)")}')
