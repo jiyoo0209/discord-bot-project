@@ -386,21 +386,5 @@ class Dashboard(commands.Cog):
         await interaction.followup.send(
             '페이지 대시보드를 설치했습니다. ◀▶ 로 넘겨 보고, 🔄 로 최신화하세요.', ephemeral=True)
 
-    @app_commands.command(name='요약', description='(길마/서마) 시트 요약 탭 갱신 + 헤더 보기 좋게 정리')
-    async def summary(self, interaction: discord.Interaction):
-        if not (has_role(interaction, '길마') or has_role(interaction, '서마')):
-            await interaction.response.send_message('길마/서마만 사용 가능합니다!', ephemeral=True)
-            return
-        await interaction.response.defer(ephemeral=True)
-        try:
-            await asyncio.to_thread(write_summary_sheet)
-            await asyncio.to_thread(beautify_headers)
-        except Exception as e:
-            await interaction.followup.send(f'오류: {e}', ephemeral=True)
-            return
-        await interaction.followup.send(
-            '시트 **요약** 탭을 갱신하고 헤더를 정리했습니다. 길드원은 요약 탭만 보면 돼요.', ephemeral=True)
-
-
 async def setup(bot):
     await bot.add_cog(Dashboard(bot))

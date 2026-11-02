@@ -9,12 +9,12 @@ from discord import app_commands
 from discord.ext import commands
 
 from sheet.sheet import (
-    add_points, add_deny_reason, calc_honor_excellent, get_user_by_discord,
+    add_points, add_deny_reason, get_user_by_discord,
     get_incomplete_members, get_week_daily_points, add_deny_weeks,
 )
 from dashboard.dashboard import WEEKLY_QUEST_LIMIT, _range_date
-from roleSetting.roleSetting import has_role, members_autocomplete, sync_rank_roles, rank_change_text, user_autocomplete
-from util.dates import today_int, this_saturday, parse_date_arg, kst_today
+from roleSetting.roleSetting import has_role, members_autocomplete, user_autocomplete
+from util.dates import today_int, parse_date_arg, kst_today
 from datetime import timedelta, datetime
 from util.dates import KST
 
@@ -108,27 +108,6 @@ class Quest(commands.Cog):
             except Exception as e:
                 print(f'[quest] 체크 기록 실패: {e}')
 
-    # /점령 <길드원들> — 점령 참여 기록 (point 8, capture_yn=Y, 날짜=이번주 토요일)
-    @app_commands.command(name='점령', description='점령 참여 기록 (8점)')
-    @app_commands.describe(길드원들='공백으로 구분한 테런 닉네임들 (자동완성)')
-    @app_commands.autocomplete(길드원들=members_autocomplete)
-    async def occupy(self, interaction: discord.Interaction, 길드원들: str):
-        if not (has_role(interaction, '길마') or has_role(interaction, '서마')):
-            await interaction.response.send_message('길마/서마만 사용 가능합니다!', ephemeral=True)
-            return
-        names = 길드원들.split()
-        if not names:
-            await interaction.response.send_message('길드원을 1명 이상 입력하세요!', ephemeral=True)
-            return
-        await interaction.response.defer(ephemeral=True)
-        ok, known, unknown = await asyncio.to_thread(
-            add_points, names, 8, 'Y', this_saturday())
-        if not ok:
-            await interaction.followup.send('시트 오류로 처리하지 못했습니다.', ephemeral=True)
-            return
-        await interaction.followup.send('**점령 참여** 기록 (8점)\n' + _fmt_result(known, unknown),
-                                        ephemeral=True, allowed_mentions=_NO_PINGS)
-
     # /이번주길퀘확인 — 본인 이번 주(월~일) 요일별 길퀘 점수 (capture_yn=N 만). 전체 길드원, 채널에 공개.
     @app_commands.command(name='이번주길퀘확인', description='내 이번주 요일별 길퀘 점수 확인')
     async def week_check(self, interaction: discord.Interaction):
@@ -136,7 +115,7 @@ class Quest(commands.Cog):
         res = await asyncio.to_thread(get_week_daily_points, interaction.user.id)
         if not res:
             await interaction.followup.send(
-                '등록된 길드원이 아닙니다. 먼저 관리자에게 `/가입` 을 요청하세요.')
+                '등록된 길드원이 아닙니다. 먼저 관리자에게 가입 승인을 요청하세요.')
             return
         name, daily = res
         # 다른 버튼/카드와 같은 Components V2 카드로 표시 (닉은 마크다운이라 멘션 핑 없음)
@@ -195,30 +174,10 @@ class Quest(commands.Cog):
         name = await asyncio.to_thread(get_user_by_discord, interaction.user.id)
         if not name:
             await interaction.followup.send(
-                '등록된 길드원이 아닙니다. 먼저 관리자에게 `/가입` 을 요청하세요.', ephemeral=True)
+                '등록된 길드원이 아닙니다. 먼저 관리자에게 가입 승인을 요청하세요.', ephemeral=True)
             return
         ok, message = await asyncio.to_thread(add_deny_reason, name, 사유)
         await interaction.followup.send(message, ephemeral=True)
-
-    # /명예우수계산 — reflection_yn=N 포인트로 명예/우수 산정 후 Y 로 마감
-    @app_commands.command(name='명예우수계산', description='명예/우수 예상 계산 및 반영 마감')
-    async def calc(self, interaction: discord.Interaction):
-        if not (has_role(interaction, '길마') or has_role(interaction, '서마')):
-            await interaction.response.send_message('길마/서마만 사용 가능합니다!', ephemeral=True)
-            return
-        await interaction.response.defer(ephemeral=True)
-        ok, honor, excel, n, changes = await asyncio.to_thread(calc_honor_excellent)
-        if not ok:
-            await interaction.followup.send('시트 오류로 처리하지 못했습니다.', ephemeral=True)
-            return
-        fails = await sync_rank_roles(interaction.guild, changes)
-        embed = discord.Embed(title='명예/우수 계산 결과', color=0x5865F2)
-        embed.add_field(name='명예', value='\n'.join(f'- {x}' for x in honor) or '- 없음', inline=False)
-        embed.add_field(name='우수', value='\n'.join(f'- {x}' for x in excel) or '- 없음', inline=False)
-        embed.add_field(name='등급 변경', value=rank_change_text(changes, fails).strip()[:1024], inline=False)
-        embed.set_footer(text=f'{n}개 포인트 반영 완료 (reflection_yn → Y)')
-        await interaction.followup.send(embed=embed, ephemeral=True)
-
 
     # 이번주 길퀘 미완료자에게 공개 멘션 리마인드 + 개인 DM (핑 울림 — 의도적 공개)
     @app_commands.command(name='리마인드', description='이번주 길퀘 미완료자에게 리마인드 (채널 멘션 + 개인 DM)')

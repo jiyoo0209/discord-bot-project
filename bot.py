@@ -36,18 +36,12 @@ async def on_ready():
         print('명령어 동기화 완료 (글로벌 · 전파에 최대 1시간)')
     _synced = True
 
-@bot.tree.command(name='test', description='테스트 명령어')
-async def test(interaction: discord.Interaction):
-    await interaction.response.send_message('정상 작동!')
-
 async def main():
     token = os.getenv('DISCORD_TOKEN')
     if not token:
         print('❌ DISCORD_TOKEN 이 없습니다. .env 파일을 확인하세요 (.env.example 참고)')
         return
     async with bot:
-        await bot.load_extension('roleSetting.roleSetting')
-        await bot.load_extension('user.user')
         await bot.load_extension('dashboard.dashboard')
         await bot.load_extension('quest.quest')
         await bot.load_extension('batch.batch')

@@ -18,14 +18,14 @@ from dashboard.dashboard import (
     parse_summary_input,
 )
 from sheet.sheet import (
-    get_user_status, get_user_by_discord, add_deny_reason, init_sheets, get_dashboard_records,
+    get_user_status, get_user_by_discord, add_deny_reason, get_dashboard_records,
     add_user, add_points, list_active_users, change_user_rank, VALID_RANKS,
     calc_honor_excellent, get_incomplete_members, update_rank_cnt, get_spreadsheet_url,
     process_weekly_warnings,
 )
 from roleSetting.roleSetting import has_role, sync_rank_roles, rank_change_text
 from config.guild_config import (
-    set_setting, get_setting, get_role_id, set_role_id, get_guild_config, ROLE_KEYS,
+    set_setting, get_role_id, set_role_id, get_guild_config, ROLE_KEYS,
 )
 from util.dates import today_int, this_saturday, parse_date_arg, KST
 from datetime import datetime
@@ -120,12 +120,11 @@ async def _flip_card(interaction: discord.Interaction, delta: int):
 
 
 HELP_TEXT = (
-    '**📋 길퀘봇 명령어**\n'
-    '• `/가입 <닉> <@유저>` · `/탈퇴 <닉>` · `/등급변경 <닉> <등급>` — 길드원 관리\n'
-    '• `/증가 · /감소 <등급> <숫자>` — 등급 인원수\n'
-    '• `/체크 <점수> <닉들>` · `/점령 <닉들>` — 점수/점령\n'
-    '• `/명예우수계산` — 명예/우수 산정\n'
-    '• `/대시보드` · `/셋업` · `/초기화` · `/요약` — 현황/설정\n'
+    '**📋 길퀘봇 사용법**\n'
+    '• `/체크 <점수> <닉들> [날짜]` — 길퀘 점수 체크\n'
+    '• `/이번주길퀘확인` — 내 이번주 요일별 점수\n'
+    '• `/길퀘불가사유 <사유>` · `/길퀘체크제외` — 길퀘 불가 등록\n'
+    '• `/리마인드` · `/대시보드설치` · `/점령투표` · `/명예의전당`\n'
     '아래 버튼: 📊 대시보드 · 🙋 내 현황 · 📄 시트 · ❓ 도움말\n'
     '관리자행(길마·서마): 가입 · 탈퇴 · 체크 · 점령 · 관리\n'
     '관리 → 등급 변경 · 역할 관리 · 시트 요약 · 길퀘불가 · 인원수 증감 · 명예우수계산 · 리마인드 · 경고처리'
@@ -431,7 +430,7 @@ class RankChangeView(discord.ui.LayoutView):
         super().__init__(timeout=180)
         self.chosen_name = None
         self.chosen_rank = None
-        note = '\n-# 25명까지만 표시 — 나머지는 `/등급변경`' if len(names) > 25 else ''
+        note = '\n-# 25명까지만 표시돼요' if len(names) > 25 else ''
         row_name = discord.ui.ActionRow(); row_name.add_item(_RankNameSelect(names))
         row_rank = discord.ui.ActionRow(); row_rank.add_item(_RankSelect())
         self.add_item(discord.ui.Container(
@@ -549,7 +548,7 @@ class AdminButtons(discord.ui.ActionRow):
             return
         content = '탈퇴할 길드원을 선택하세요:'
         if len(names) > 25:
-            content += '\n-# 25명까지만 표시됩니다 — 나머지는 `/탈퇴` 명령을 쓰세요.'
+            content += '\n-# 25명까지만 표시돼요 — 나머지는 길드원 목록 카드의 [탈퇴] 버튼을 쓰세요.'
         v = RemoveSelectView(names)
         await interaction.edit_original_response(content=content, view=v)
         v.origin = interaction
@@ -820,69 +819,6 @@ class Panel(commands.Cog):
         # 영속 View 등록 — 재시작 후에도 기존 패널/셋업 버튼이 동작
         self.bot.add_view(DashboardCard())
         self.bot.add_view(SetupLayout())
-
-    # 채널 자동 생성 + 액션 버튼 패널 게시 (알로항식 원클릭 셋업)
-    @app_commands.command(name='셋업', description='(길마) 관리 채널 자동 생성 + 버튼 패널 설치')
-    async def setup_center(self, interaction: discord.Interaction):
-        if not has_role(interaction, '길마'):
-            await interaction.response.send_message('길드마스터만 사용 가능합니다!', ephemeral=True)
-            return
-        await interaction.response.defer(ephemeral=True)
-
-        # 대상 채널 결정 — 이전에 만든 채널 ID 를 최우선 재사용(이름을 손댔어도 그대로 씀).
-        #   없으면 이름으로 탐색, 그래도 없으면 새로 생성 → /셋업 을 여러 번 해도 채널이 안 늘어남.
-        # 이름의 전각 세로바(｜)는 Discord 가 공백을 하이픈으로 치환하는 걸 피해 깔끔하게 보이려는 것.
-        ch_name = '🗒️｜길퀘관리'
-        old_ch = get_setting(interaction.guild.id, '_setup_ch')
-        old_msg = get_setting(interaction.guild.id, '_setup_msg')
-        channel = interaction.guild.get_channel(int(old_ch)) if old_ch else None
-        if channel is not None and old_msg:
-            try:   # 이전 패널 메시지 정리(고아 방지)
-                old = await channel.fetch_message(int(old_msg))
-                await old.delete()
-            except Exception:
-                pass
-        if channel is None:
-            channel = discord.utils.get(interaction.guild.text_channels, name=ch_name)
-        if channel is None:
-            try:
-                channel = await interaction.guild.create_text_channel(ch_name)
-            except discord.Forbidden:
-                await interaction.followup.send(
-                    '채널을 만들 권한이 없습니다. 봇에게 **채널 관리(Manage Channels)** 권한을 주세요.',
-                    ephemeral=True)
-                return
-
-        try:
-            avatar = self.bot.user.display_avatar.url if self.bot.user else None
-            msg = await channel.send(view=SetupLayout(avatar))  # Components V2 카드 (embed 없이 컴포넌트만)
-        except discord.Forbidden:
-            await interaction.followup.send(
-                f'{channel.mention} 에 메시지를 보낼 권한이 없습니다.', ephemeral=True)
-            return
-        set_setting(interaction.guild.id, '_setup_ch', channel.id)
-        set_setting(interaction.guild.id, '_setup_msg', msg.id)
-        await interaction.followup.send(
-            f'{channel.mention} 에 관리 패널을 설치했습니다. 버튼으로 조회·등록하세요.', ephemeral=True)
-
-    # 시트 원클릭 준비 (새 서버 배포용): 4탭 + user_rank 등급행/공식 자동 생성
-    @app_commands.command(name='초기화', description='(서버 소유자/관리자) 시트 4탭 + 등급 자동 준비')
-    async def init_sheet_cmd(self, interaction: discord.Interaction):
-        is_owner = interaction.user.id == interaction.guild.owner_id
-        if not (is_owner or interaction.user.guild_permissions.administrator):
-            await interaction.response.send_message('서버 소유자 또는 관리자만 사용 가능합니다!', ephemeral=True)
-            return
-        await interaction.response.defer(ephemeral=True)
-        ok, msg = await asyncio.to_thread(init_sheets)
-        # 초기화 김에 요약 탭 생성 + 헤더 서식까지 (사람이 보기 좋게)
-        try:
-            await asyncio.to_thread(write_summary_sheet)
-            await asyncio.to_thread(beautify_headers)
-            msg += ' · 요약 탭/서식도 정리됨'
-        except Exception as e:
-            msg += f' (요약/서식은 건너뜀: {e})'
-        await interaction.followup.send(msg, ephemeral=True)
-
 
 async def setup(bot):
     await bot.add_cog(Panel(bot))

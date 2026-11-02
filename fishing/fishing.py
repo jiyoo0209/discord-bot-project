@@ -18,7 +18,6 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from config.guild_config import get_setting, set_setting
 from roleSetting.roleSetting import has_role
 
 _ACCENT = discord.Colour(0x3FB8F3)   # 길드 대표색 (다른 카드와 통일)
@@ -316,38 +315,6 @@ class Fishing(commands.Cog):
     async def cog_load(self):
         self.bot.add_view(FishingView())   # 설치된 공용 카드 — 재시작 후에도 버튼/선택 동작
         self.bot.add_dynamic_items(RemoveButton)
-
-    # 대시보드처럼 채널에 상주 — 이전 설치분은 지우고 새로 게시
-    @app_commands.command(name='낚시계산기설치', description='(관리자) 선택한 채널에 낚시 경험치 계산기 카드 설치')
-    @app_commands.describe(channel='계산기 카드를 설치할 채널')
-    async def install(self, interaction: discord.Interaction, channel: discord.TextChannel):
-        if not _is_admin(interaction):
-            await interaction.response.send_message('관리자만 사용 가능합니다!', ephemeral=True)
-            return
-        await interaction.response.defer(ephemeral=True)
-        old_ch = get_setting(interaction.guild.id, '_fish_ch')
-        old_msg = get_setting(interaction.guild.id, '_fish_msg')
-        if old_ch and old_msg:
-            try:
-                ch = (interaction.guild.get_channel(int(old_ch))
-                      or await self.bot.fetch_channel(int(old_ch)))
-                old = await ch.fetch_message(int(old_msg))
-                await old.delete()
-            except Exception:
-                pass
-        try:
-            msg = await channel.send(view=FishingView())
-        except discord.Forbidden:
-            await interaction.followup.send(
-                f'{channel.mention} 에 메시지를 보낼 권한이 없습니다. 봇 권한을 확인하세요.', ephemeral=True)
-            return
-        except Exception as e:
-            await interaction.followup.send(f'설치 실패: {e}', ephemeral=True)
-            return
-        set_setting(interaction.guild.id, '_fish_ch', channel.id)
-        set_setting(interaction.guild.id, '_fish_msg', msg.id)
-        await interaction.followup.send(f'{channel.mention} 에 낚시 계산기를 설치했습니다.', ephemeral=True)
-
 
 async def setup(bot):
     await bot.add_cog(Fishing(bot))

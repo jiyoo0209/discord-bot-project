@@ -108,7 +108,7 @@ async def _swap_roles(member, new_key):
     wait_role = guild.get_role(wait_id) if wait_id else None
     new_role = guild.get_role(new_id) if new_id else None
     if new_role is None:
-        return f'\n⚠️ `{new_key}` 역할 매핑이 없어 역할은 바꾸지 못했어요 (`/역할설정` 필요)'
+        return f'\n⚠️ `{new_key}` 역할 매핑이 없어 역할은 바꾸지 못했어요 (관리 → 역할 관리에서 설정)'
     try:
         if wait_role and wait_role in member.roles:
             await member.remove_roles(wait_role, reason='입장 승인')

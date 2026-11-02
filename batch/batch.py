@@ -6,7 +6,7 @@
 *   [월요일 자정] 지난 주 경고 정산 — 매일완주(7회) -1 · 점령 -1 차감 후, 길퀘 미달 +1
 *   [월요일 자정] 3개월 지난 반영 완료(reflection_yn=Y) user_point 행 삭제
 *   [월요일 자정] 점령투표 채널에 그 주 토요일 점령 참여 투표 카드 게시 (vote/vote.py)
-* + /주간경고처리 : 수동 실행 (테스트/보정용)
+* (수동 정산은 관리 패널 → 경고처리 버튼)
 * author ENI
 * date   2026.07.16
 '''
@@ -19,7 +19,6 @@ from datetime import time as dtime
 
 from sheet.sheet import process_weekly_warnings, get_incomplete_members, purge_old_points
 from dashboard.dashboard import WEEKLY_QUEST_LIMIT, write_summary_sheet
-from roleSetting.roleSetting import has_role
 from config.guild_config import get_setting, set_setting
 from util.dates import is_sunday, is_friday, is_monday, week_range, KST
 
@@ -197,17 +196,6 @@ class Batch(commands.Cog):
             except Exception as e:
                 print(f'[batch] 리마인드 실패(guild {guild.id}): {e}')
             break  # 첫 설정 길드에만 발송
-
-    # 수동 실행 (월요일 안 기다리고 테스트/보정) — 저번 주 기준으로 정산됨에 유의
-    @app_commands.command(name='주간경고처리', description='(길마) 지난 주 경고 정산(부여/차감) 수동 실행')
-    async def run_warning(self, interaction: discord.Interaction):
-        if not has_role(interaction, '길마'):
-            await interaction.response.send_message('길드마스터만 사용 가능합니다!', ephemeral=True)
-            return
-        await interaction.response.defer(ephemeral=True)
-        ok, msg = await asyncio.to_thread(process_weekly_warnings, WEEKLY_QUEST_LIMIT)
-        await interaction.followup.send(msg, ephemeral=True)
-
 
 async def setup(bot):
     await bot.add_cog(Batch(bot))

@@ -210,7 +210,7 @@ def set_honor_excellent_cnt(honor, excel):
         need = ('길마', '서마', '명예', '우수', '일반', '전체')
         missing = [k for k in need if k not in rows]
         if missing:
-            return False, f'user_rank 시트에 {", ".join(missing)} 행이 없어요 (`/초기화` 확인)'
+            return False, f'user_rank 시트에 {", ".join(missing)} 행이 없어요 (시트를 확인해주세요)'
         total = _int(rows['전체'][1])
         normal = total - _int(rows['길마'][1]) - _int(rows['서마'][1]) - honor - excel
         if normal < 0:
@@ -416,32 +416,6 @@ def get_incomplete_members(limit=2):
         return None  # 조회 실패 — 호출측이 '완료(빈 리스트)'와 구분하게
 
 
-# 원클릭 시트 준비 (/초기화): 4탭 존재 보장 + user_rank 등급 시드(비어있을 때만).
-@_locked
-def init_sheets():
-    try:
-        for name in ('user', 'user_rank', 'user_point', 'quest_deny_reason'):
-            get_worksheet(name)  # 없으면 헤더와 함께 생성
-        rank_ws = get_worksheet('user_rank')
-        vals = rank_ws.get_all_values()
-        # 헤더가 없으면(완전 빈 시트) 먼저 헤더부터 — 등급이 항상 2행에서 시작하도록
-        if not vals or not any(vals[0]):
-            rank_ws.append_row(['rank_name', 'rank_cnt'], value_input_option='RAW')
-            vals = [['rank_name', 'rank_cnt']]
-        seeded = False
-        if len(vals) <= 1:  # 헤더만 = 등급 없음
-            rank_ws.append_rows([['길마', 0], ['서마', 0], ['명예', 0], ['우수', 0], ['일반', 0]],
-                                value_input_option='RAW')
-            # 전체 = user 탭 파생 '현재 활동 인원' (길마~일반 rank_cnt 는 다음 달 '정원'이라 합산하면 안 됨).
-            #   COUNTIF "<>탈퇴" 는 빈칸도 세므로 COUNTA - COUNTIF(탈퇴) 로 계산.
-            rank_ws.append_row(['전체', '=COUNTA(user!C2:C)-COUNTIF(user!C2:C,"탈퇴")'],
-                               value_input_option='USER_ENTERED')
-            seeded = True
-        return True, ('시트 준비 완료 — 4탭 확인'
-                      + (' + 등급 6종 시드' if seeded else ' (user_rank 등급 이미 있음, 유지)'))
-    except Exception as e:
-        return False, f'오류: {e}'
-    
 # 특정 시트에서 A열 == name 인 모든 행 삭제 (아래에서 위로 삭제해 인덱스 밀림 방지)
 def _delete_rows_by_name(worksheet, name):
     cells = worksheet.findall(name, in_column=1)
