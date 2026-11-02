@@ -57,6 +57,7 @@ async def main():
         await bot.load_extension('vote.vote')
         await bot.load_extension('memberlist.memberlist')
         await bot.load_extension('serverlog.serverlog')
+        await bot.load_extension('halloffame.halloffame')
         await bot.load_extension('fishing.fishing')
         # 나중에 다른 파일도 이렇게 추가
 

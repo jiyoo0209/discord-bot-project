@@ -15,6 +15,7 @@ from sheet.sheet import (get_dashboard_records, calc_honor_excellent, set_honor_
                          list_active_users)
 from roleSetting.roleSetting import has_role, sync_rank_roles, rank_change_text
 from config.guild_config import get_setting, set_setting
+from halloffame.halloffame import post_hall_of_fame, parse_ym, default_ym
 
 MEMBER_CHANNEL_ID = 1565561284252930119   # 길드원관리 채널
 TITLE = '<:emoji_13:1486906955011461261> 마커 길드원 목록'
@@ -84,20 +85,8 @@ class _Buttons(discord.ui.ActionRow):
         if not _is_staff(interaction):
             await interaction.response.send_message(_NO_PERM, ephemeral=True)
             return
-        await interaction.response.defer(ephemeral=True, thinking=True)
-        ok, honor, excel, n, changes = await asyncio.to_thread(calc_honor_excellent)
-        if not ok:
-            await interaction.followup.send('시트 오류로 처리하지 못했어요.', ephemeral=True)
-            return
-        fails = await sync_rank_roles(interaction.guild, changes)   # 디스코드 역할도 같은 등급으로
-        text = ('## 명예/우수 집계 결과\n'
-                '**명예**: ' + (', '.join(honor) or '없음') + '\n'
-                '**우수**: ' + (', '.join(excel) or '없음') +
-                rank_change_text(changes, fails) + '\n'
-                f'-# {n}개 포인트 반영 완료 (reflection_yn → Y)')
-        await interaction.followup.send(text[:1990], ephemeral=True)
-        if changes:
-            await _refresh(interaction.message)   # 목록 카드 등급 갱신
+        # 집계는 되돌릴 수 없으니, 명예의 전당 연월을 먼저 팝업으로 받고 형식이 맞을 때만 집계
+        await interaction.response.send_modal(CalcModal(interaction.message))
 
     @discord.ui.button(label='명예우수설정', style=discord.ButtonStyle.primary, custom_id='ml_set')
     async def set_cnt(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -169,6 +158,41 @@ class LeaveModal(discord.ui.Modal, title='길드원 탈퇴'):
             await view.wait()
             await _refresh(self.card_message)
         asyncio.create_task(_after())
+
+
+class CalcModal(discord.ui.Modal, title='명예/우수 집계'):
+    연월 = discord.ui.TextInput(label='명예의 전당 연월', placeholder='예: 2026-11 또는 11', max_length=10)
+
+    def __init__(self, card_message):
+        super().__init__()
+        self.card_message = card_message
+        y, m = default_ym()
+        self.연월.default = f'{y}-{m:02d}'
+
+    async def on_submit(self, interaction: discord.Interaction):
+        ym = parse_ym(str(self.연월))
+        if ym is None:
+            await interaction.response.send_message('연월 형식 오류예요. 예: `2026-11` 또는 `11` (집계는 하지 않았어요)',
+                                                    ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        ok, honor, excel, n, changes = await asyncio.to_thread(calc_honor_excellent)
+        if not ok:
+            await interaction.followup.send('시트 오류로 처리하지 못했어요.', ephemeral=True)
+            return
+        fails = await sync_rank_roles(interaction.guild, changes)   # 디스코드 역할도 같은 등급으로
+        names = lambda xs: [x.rsplit(' (', 1)[0] for x in xs]       # '닉 (30점)' → '닉'
+        posted, hall_msg = await post_hall_of_fame(interaction.guild, ym[0], ym[1], names(honor), names(excel))
+        text = ('## 명예/우수 집계 결과\n'
+                '**명예**: ' + (', '.join(honor) or '없음') + '\n'
+                '**우수**: ' + (', '.join(excel) or '없음') +
+                rank_change_text(changes, fails) + '\n'
+                f'-# {n}개 포인트 반영 완료 (reflection_yn → Y)\n'
+                + ('🏆 ' if posted else '⚠️ ') + hall_msg
+                + ('' if posted else ' — `/명예의전당` 으로 다시 올릴 수 있어요'))
+        await interaction.followup.send(text[:1990], ephemeral=True)
+        if changes:
+            await _refresh(self.card_message)   # 목록 카드 등급 갱신
 
 
 class RankCntModal(discord.ui.Modal, title='명예/우수 정원 설정'):
