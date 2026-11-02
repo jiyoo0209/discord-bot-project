@@ -293,10 +293,10 @@ class OccupyVote(commands.Cog):
         self.bot.add_dynamic_items(VoteButton, ConfirmButton)   # 재시작 후에도 버튼 동작
 
     async def find_vote(self, channel, sat):
-        '''채널 최근 메시지에서 그 주 토요일 투표 카드(마감 여부 무관)를 찾음 — 없으면 None'''
+        '''채널의 가장 최근 메시지 1개가 그 주 토요일 투표 카드(마감 여부 무관)인지 확인 — 아니면 None'''
         ids = {f'ov_{k}:{sat}' for k in ('yes', 'no', 'etc', 'ok')}
         title = _title(sat)
-        async for msg in channel.history(limit=100):
+        async for msg in channel.history(limit=1):
             if msg.author.id != self.bot.user.id:
                 continue
             for c in _walk(msg.components):
@@ -310,7 +310,7 @@ class OccupyVote(commands.Cog):
         sat = sat or this_saturday()
         try:
             channel = self.bot.get_channel(VOTE_CHANNEL_ID) or await self.bot.fetch_channel(VOTE_CHANNEL_ID)
-            existing = await self.find_vote(channel, sat)   # 설정 파일이 바뀌어도 중복 게시 안 되게 채널을 직접 확인
+            existing = await self.find_vote(channel, sat)   # 설정 파일이 바뀌어도 중복 게시 안 되게 마지막 메시지를 직접 확인
             if existing is not None:
                 return True, True, existing
             msg = await channel.send(view=_render(sat, {YES: [], NO: [], ETC: []}))
