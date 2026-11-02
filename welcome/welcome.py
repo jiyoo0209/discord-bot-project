@@ -3,6 +3,7 @@
 *   [길드원 승인] 닉네임 팝업 → 시트 등록(/가입 과 동일) · 입장대기→일반 · 서버 닉네임 변경
 *   [게스트 승인] 입장대기→게스트 (시트 등록 없음)
 *   두 버튼 모두 길마·서마 전용. 승인 후 카드는 결과 + 승인자 + 시각으로 바뀌고 버튼은 사라짐.
+* 입장 카드가 24시간 넘게 미승인이면 길마·서마 DM + 관리 채널 카드 (alerts)
 * 퇴장 시 퇴장 채널에 퇴장 카드 (프로필형 · 함께한 기간 · 시각)
 *   필요: 개발자 포털 Server Members Intent, 봇 역할이 입장대기/일반/게스트 보다 위.
 * date   2026.10.30
@@ -12,15 +13,17 @@ import time
 from datetime import datetime, timezone
 
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 
 from sheet.sheet import add_user
 from roleSetting.roleSetting import has_role
 from config.guild_config import get_role_id
+from alerts.alerts import post_waiting_alert
 
 WELCOME_CHANNEL_ID = 1414425194650406923
 LEAVE_CHANNEL_ID = 1414432294248120351     # 퇴장 카드 채널
 SERVER_NAME = '마커'
+WAIT_ALERT_SEC = 24 * 3600   # 입장 카드가 이만큼 미승인이면 관리자 알림
 TITLE_EMOJI = '<:emoji_13:1486906955011461261>'   # 서버 벚꽃 이모지
 
 _ACCENT = discord.Colour(0x3FB8F3)   # 길드 대표색 (다른 카드와 통일)
@@ -217,12 +220,62 @@ class GuestApproveButton(discord.ui.DynamicItem[discord.ui.Button],
             _busy.discard(self.uid)
 
 
+def _pending_uid(message):
+    '''승인 버튼이 남아 있는 입장 카드면 대상 유저 ID, 아니면 None'''
+    def walk(cs):
+        for c in cs or []:
+            yield c
+            yield from walk(getattr(c, 'children', None))
+    for c in walk(message.components):
+        cid = getattr(c, 'custom_id', None) or ''
+        if cid.startswith('wc_member:'):
+            return int(cid.split(':')[1])
+    return None
+
+
 class Welcome(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        self._alerted = set()   # 이번 실행에서 알림 보낸 카드 (같은 1시간 창 중복 방지)
 
     async def cog_load(self):
         self.bot.add_dynamic_items(MemberApproveButton, GuestApproveButton)   # 재시작 후에도 버튼 동작
+        self.waiting_check.start()
+
+    def cog_unload(self):
+        self.waiting_check.cancel()
+
+    # 입장 대기 방치 알림 — 1시간마다 입장 채널의 미승인 카드(승인 버튼이 남은 카드)를 보고,
+    #   올라온 지 24~25시간 된 카드만 알림 → 카드당 한 번 (따로 저장 안 함). 이미 나간 사람은 건너뜀.
+    @tasks.loop(hours=1)
+    async def waiting_check(self):
+        channel = self.bot.get_channel(WELCOME_CHANNEL_ID)
+        if channel is None:
+            return
+        now = time.time()
+        try:
+            async for msg in channel.history(limit=50):
+                age = now - msg.created_at.timestamp()
+                if age > WAIT_ALERT_SEC + 3600 * 24:   # 그보다 오래된 카드는 볼 필요 없음
+                    break
+                if msg.author.id != self.bot.user.id or not (WAIT_ALERT_SEC <= age < WAIT_ALERT_SEC + 3600):
+                    continue
+                uid = _pending_uid(msg)
+                if uid is None or msg.id in self._alerted:
+                    continue
+                self._alerted.add(msg.id)
+                member = channel.guild.get_member(uid)
+                if member is None:
+                    continue   # 이미 서버를 나감
+                ok, fail = await post_waiting_alert(channel.guild, member, int(msg.created_at.timestamp()),
+                                                    msg.jump_url)
+                print(f'[welcome] 입장 대기 알림 — {member} (DM 성공 {ok} / 실패 {fail})')
+        except Exception as e:
+            print(f'[welcome] 입장 대기 확인 실패: {e}')
+
+    @waiting_check.before_loop
+    async def _before_waiting(self):
+        await self.bot.wait_until_ready()
 
     @commands.Cog.listener()
     async def on_member_join(self, member: discord.Member):

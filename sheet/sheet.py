@@ -13,7 +13,7 @@ import functools
 from collections import defaultdict
 from datetime import date, timedelta
 from dotenv import load_dotenv
-from util.dates import today_int, week_range, this_saturday, is_sunday, last_week_range, last_saturday, kst_today
+from util.dates import today_int, week_range, is_sunday, last_week_range, last_saturday, kst_today
 
 load_dotenv()
 
@@ -224,27 +224,6 @@ def set_honor_excellent_cnt(honor, excel):
         print(f'오류: {e}')
         return False, f'오류: {e}'
 
-
-# user_rank 시트에서 rank_name의 현재 rank_cnt 조회 [핼퍼 함수]
-def get_rank_cnt(rank_name):
-    try:
-        worksheet = get_worksheet('user_rank')
-
-        # rank_name으로 데이터 찾기 (A열에서만)
-        find_data = worksheet.find(rank_name, in_column=1)
-
-        if find_data:
-            cnt = _int(worksheet.cell(find_data.row, 2).value)
-            return True, cnt
-        else:
-            err_msg = f'{rank_name}을(를) 찾을 수 없습니다'
-            print(err_msg)
-            return False, err_msg
-
-    except Exception as e:
-        err_msg = f'오류: {e}'
-        print(err_msg)
-        return False, err_msg
 
 # user 시트에 신규 길드원 추가 (탈퇴자는 재가입 처리). discord_id 저장(자동 닉 인식용).
 @_locked
@@ -580,9 +559,10 @@ def _pt(p):
 #   점수 높은 순으로 명예(정원) → 우수(정원) 배정. 계산에 쓴 N 행 전부 Y 로 마감.
 #   이름·등급의 앞뒤 공백은 무시. user 탭에 없는 이름도 제외하지 않음(길마/서마로 확인된 사람만 제외).
 #   + user 탭 rank_name 갱신: 뽑힌 사람 → 명예/우수, 기존 명예/우수인데 안 뽑힘 → 일반 (길마/서마/탈퇴는 그대로)
+#   apply=False 면 시트에 아무것도 쓰지 않고 결과만 계산 (명예우수집계 미리보기용)
 #   반환: (ok, 명예['닉 (점수점)'...], 우수[...], 처리행수, 등급변경[(닉, discord_id, 이전, 이후)...])
 @_locked
-def calc_honor_excellent():
+def calc_honor_excellent(apply=True):
     try:
         user_ws = get_worksheet('user')
         point_ws = get_worksheet('user_point')
@@ -628,6 +608,8 @@ def calc_honor_excellent():
             if new != old:
                 changes.append((name, did, old, new))
                 rank_cells.append(gspread.Cell(row=row, col=3, value=new))
+        if not apply:
+            return True, honor, excel, len(pending_rows), changes
         if rank_cells:
             user_ws.update_cells(rank_cells)
 
@@ -703,6 +685,7 @@ def purge_old_points(months=3):
 #   [부여] 차감 반영 후, 길퀘 횟수가 limit(2) 미만 & 그 주 길퀘불가사유 미등록 → 경고 +1
 #   예) 경고 0 + 점령 참여(0이라 변동 없음) + 길퀘 미달(+1) = 경고 1
 FULL_WEEK_QUEST = 7   # '매일 완주' 판정 기준 (월~일 7회)
+WARN_ALERT = 3        # 경고가 이 횟수에 처음 도달하면 관리 채널에 알림 (반환값 reached)
 
 
 @_locked
@@ -734,6 +717,7 @@ def process_weekly_warnings(limit=2, full=FULL_WEEK_QUEST):
                 denied.add(r[0])
 
         inc = dec = 0
+        reached = []   # 이번 정산으로 경고가 WARN_ALERT 회에 처음 도달한 (닉, discord_id, 경고)
         for i, r in enumerate(user_ws.get_all_values()[1:], start=2):
             name = r[0] if r else ''
             rank = r[2] if len(r) > 2 else ''
@@ -759,46 +743,16 @@ def process_weekly_warnings(limit=2, full=FULL_WEEK_QUEST):
                     inc += 1
                 else:
                     dec += 1
-        return True, f'주간 경고 정산 완료 — 부여 {inc}명 · 차감 {dec}명 (기준: {wk_start}~{wk_end})'
+                if warning < WARN_ALERT <= new:
+                    reached.append((name.strip(), r[3].strip() if len(r) > 3 else '', new))
+        return (True, f'주간 경고 정산 완료 — 부여 {inc}명 · 차감 {dec}명 (기준: {wk_start}~{wk_end})',
+                reached)
     except Exception as e:
         print(f'오류: {e}')
-        return False, f'오류: {e}'
+        return False, f'오류: {e}', []
 
     
-# user 시트에서 해당 길드원의 등급(rank_name) 변경
-@_locked
-def update_user(user_name, rank_name):
-    try:
-        # 등급 유효성 검증
-        if rank_name not in VALID_RANKS:
-            msg = f'잘못된 등급입니다. (가능: {", ".join(VALID_RANKS)})'
-            print(msg)
-            return False, msg
-
-        worksheet = get_worksheet('user')
-
-        # A열에서 닉네임 찾기
-        find_data = worksheet.find(user_name, in_column=1)
-
-        if not find_data:
-            msg = f'{user_name}님을 찾을 수 없습니다'
-            print(msg)
-            return False, msg
-
-        # rank_name(C열, 3번째) 변경
-        worksheet.update_cell(find_data.row, 3, rank_name)
-
-        msg = f'{user_name}님의 등급이 {rank_name}(으)로 변경되었습니다!'
-        print(msg)
-        return True, msg
-
-    except Exception as e:
-        err_msg = f'오류: {e}'
-        print(err_msg)
-        return False, err_msg
-
-
-# 개인 등급 변경 (/등급변경). rank_cnt(정원)는 변경하지 않는다.
+# 개인 등급 변경 (관리 패널 → 등급 변경). rank_cnt(정원)는 변경하지 않는다.
 @_locked
 def change_user_rank(user_name, new_rank):
     try:

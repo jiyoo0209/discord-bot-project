@@ -18,7 +18,6 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from roleSetting.roleSetting import has_role
 
 _ACCENT = discord.Colour(0x3FB8F3)   # 길드 대표색 (다른 카드와 통일)
 _RESULT = discord.Colour(0x639922)   # 결과 카드 초록
@@ -300,11 +299,6 @@ class FishingView(discord.ui.LayoutView):
             buttons,
             accent_colour=_RESULT,
         )
-
-
-def _is_admin(interaction):
-    return (interaction.user.guild_permissions.administrator
-            or has_role(interaction, '길마') or has_role(interaction, '서마'))
 
 
 @app_commands.guild_only()

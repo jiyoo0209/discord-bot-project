@@ -213,25 +213,6 @@ def build_sections(today=None, records=None, date_range=None):
     sec4 = section_forecast(rank_of, forecast_pts, rank_cnt)
     return sec1, sec2, sec3, sec4
 
-def _cap(value):
-    '''Discord embed 필드 값은 1024자 상한 — 넘으면 잘라서 전송 실패(빈 대시보드) 방지'''
-    if len(value) <= 1024:
-        return value
-    return value[:1000].rstrip() + '\n… (이하 생략)'
-
-
-def build_embed(today=None, records=None):
-    s1, s2, s3, s4 = build_sections(today, records)
-    wk_start, wk_end = get_week_range(today)
-
-    embed = discord.Embed(title='길퀘 대시보드', color=0x5865F2)
-    embed.add_field(name='길퀘 남은 횟수', value=_cap(s1), inline=False)
-    embed.add_field(name='누적 경고', value=_cap(s2), inline=False)
-    embed.add_field(name='이번주 길퀘포인트 순위', value=_cap(s3), inline=False)
-    embed.add_field(name='다음 달 명예/우수 예상', value=_cap(s4), inline=False)
-    embed.set_footer(text=f'집계 주간 {wk_start} ~ {wk_end} (월~일)')
-    return embed
-
 # ======================================================================
 # 사람용 "요약" 시트 탭 — 원본 데이터 탭은 봇이 읽으므로 못 바꾸고, 별도 한글 탭에 사람이
 #   읽기 쉬운 현황을 봇이 자동으로 채운다. build_sections(검증된 로직) 재사용.

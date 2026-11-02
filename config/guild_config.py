@@ -82,12 +82,6 @@ def set_role_id(guild_id, key, role_id):
     _set_key(guild_id, key, int(role_id))
 
 
-def missing_keys(guild_id):
-    '''아직 설정 안 된 논리 역할 키 목록'''
-    cfg = get_guild_config(guild_id)
-    return [k for k in ROLE_KEYS if k not in cfg]
-
-
 # ── 범용 설정 (역할 매핑 외: 대시보드 채널/메시지, 배치 실행 주차 등) ──
 #   역할 키와 안 겹치게 '_' 접두 키를 쓴다. 전역값은 guild_id='_global' 로 저장.
 def get_setting(guild_id, key, default=None):

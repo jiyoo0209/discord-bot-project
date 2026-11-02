@@ -29,6 +29,7 @@ YES, NO, ETC = 'yes', 'no', 'etc'
 _HEAD = {YES: '✅ 참여 인원', NO: '❌ 불참', ETC: '💬 기타'}
 _HEAD_RE = {k: re.compile(rf'^\*\*{re.escape(v)}\*\*$') for k, v in _HEAD.items()}
 _NONE = '-# 아직 없어요'
+_REMINDED = '📨 미참여 알림 보냄'
 _locks = {}   # 메시지 ID -> asyncio.Lock (동시 클릭 직렬화)
 
 
@@ -72,7 +73,8 @@ def _render(sat, state, closed_by=None, recorded=()):
         row = discord.ui.ActionRow()
         for item in (VoteButton(YES, sat), VoteButton(NO, sat), VoteButton(ETC, sat), ConfirmButton(sat)):
             row.add_item(item)
-        items += [row, discord.ui.TextDisplay('-# 관리자 확인 전까지 언제든 바꿀 수 있어요')]
+        items += [row, discord.ui.TextDisplay('-# 관리자 확인 전까지 언제든 바꿀 수 있어요'
+                                              + (f' · {_REMINDED}' if state.get('reminded') else ''))]
     else:
         items.append(discord.ui.TextDisplay(
             f'-# 🔒 투표 마감 · 점령 {len(recorded)}명 시트 기록 완료{_names_note(recorded)} · 확인자 {closed_by.mention}\n'
@@ -114,6 +116,9 @@ def _parse(message):
                 state[cur].append(ln[2:])
             elif ln.startswith('## ') or ln.startswith('-# 🔒'):
                 cur = None
+            if _REMINDED in ln:
+                state['reminded'] = True   # 미참여 알림을 이미 보낸 투표 (카드에 기록 → 재시작해도 중복 발송 안 함)
+                cur = None
     return state, closed
 
 
@@ -141,7 +146,7 @@ async def _apply_vote(interaction, choice, sat, reason=None, msg_ref=None):
         if closed:
             await interaction.followup.send('이미 마감된 투표예요.', ephemeral=True)
             return
-        for k in state:
+        for k in (YES, NO, ETC):
             state[k] = [ln for ln in state[k] if _owner_of(ln) != name]
         state[choice].append(f'{name}: {_esc(reason)}' if (choice == ETC and reason) else name)
         await message.edit(view=_render(sat, state), allowed_mentions=discord.AllowedMentions.none())
@@ -285,6 +290,23 @@ class ConfirmButton(discord.ui.DynamicItem[discord.ui.Button], template=r'ov_ok:
         await interaction.response.send_modal(PayModal(self.sat, interaction.message, state, registered))
 
 
+def _remind_card(sat, url):
+    s = str(sat)
+    v = discord.ui.LayoutView(timeout=None)
+    row = discord.ui.ActionRow()
+    row.add_item(discord.ui.Button(label='투표하러 가기', emoji='⚔️', url=url, style=discord.ButtonStyle.link))
+    v.add_item(discord.ui.Container(
+        discord.ui.TextDisplay(f'## ⚔️ 점령 투표를 아직 안 하셨어요\n'
+                               f'-# {int(s[4:6])}월 {int(s[6:8])}일(토) 점령 참여 여부를 알려주세요'),
+        discord.ui.Separator(),
+        discord.ui.TextDisplay('투표 채널에서 **✅ 참여 · ❌ 불참 · 💬 기타** 중 하나를 눌러주세요.\n'
+                               '관리자 확인 전까지는 언제든 바꿀 수 있어요.'),
+        row,
+        accent_colour=_ACCENT,
+    ))
+    return v
+
+
 class OccupyVote(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -303,6 +325,38 @@ class OccupyVote(commands.Cog):
                 if getattr(c, 'custom_id', None) in ids or title in (getattr(c, 'content', None) or ''):
                     return msg
         return None
+
+    async def remind_non_voters(self):
+        '''이번 주 투표에 아직 안 한 길드원(시트 등록·탈퇴 아님·discord_id 있음)에게 DM 카드.
+           투표가 없거나 마감됐거나 이미 보냈으면 건너뜀. 보낸 뒤 카드에 '📨 미참여 알림 보냄' 표시.
+           반환: 발송 인원 (건너뛰면 None)'''
+        sat = this_saturday()
+        channel = self.bot.get_channel(VOTE_CHANNEL_ID) or await self.bot.fetch_channel(VOTE_CHANNEL_ID)
+        card = await self.find_vote(channel, sat)
+        if card is None:
+            return None
+        async with _lock(card.id):
+            card = await channel.fetch_message(card.id)
+            state, closed = _parse(card)
+            if closed or state.get('reminded'):
+                return None
+            voted = {_unesc(_owner_of(ln)) for k in (YES, NO, ETC) for ln in state[k]}
+            users = (await asyncio.to_thread(get_dashboard_records))[0]
+            targets = [(r[0].strip(), r[3].strip()) for r in users
+                       if len(r) > 3 and r[0].strip() and r[3].strip().isdigit()
+                       and (len(r) < 3 or r[2].strip() != '탈퇴') and r[0].strip() not in voted]
+            state['reminded'] = True
+            await card.edit(view=_render(sat, state), allowed_mentions=discord.AllowedMentions.none())
+        sent = 0
+        for name, did in targets:
+            try:
+                member = channel.guild.get_member(int(did)) or await channel.guild.fetch_member(int(did))
+                await member.send(view=_remind_card(sat, card.jump_url))
+                sent += 1
+            except Exception:
+                pass   # 서버를 나갔거나 DM 차단
+        print(f'[vote] 점령 투표 미참여 알림 — 대상 {len(targets)}명 · 발송 {sent}명')
+        return sent
 
     async def post_vote(self, sat=None):
         '''이번 주 토요일 투표 카드 게시. 이미 그 주 투표가 있으면 새로 올리지 않음.

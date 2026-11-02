@@ -14,11 +14,11 @@ from discord import app_commands
 from discord.ext import commands
 
 from dashboard.dashboard import (
-    build_sections, build_embed, WEEKLY_QUEST_LIMIT, write_summary_sheet, beautify_headers,
+    build_sections, WEEKLY_QUEST_LIMIT, write_summary_sheet, beautify_headers,
     parse_summary_input,
 )
 from sheet.sheet import (
-    get_user_status, get_user_by_discord, add_deny_reason, get_dashboard_records,
+    get_user_status, add_deny_reason, get_dashboard_records,
     add_user, add_points, list_active_users, change_user_rank, VALID_RANKS,
     calc_honor_excellent, get_incomplete_members, update_rank_cnt, get_spreadsheet_url,
     process_weekly_warnings,
@@ -59,10 +59,6 @@ def _dash_body(page, records):
 # 패널 메시지별 현재 페이지 (인메모리). Components V2 카드는 footer 가 없어 dict 로만 추적.
 #   연타/동시 클릭은 await 이전 동기 갱신으로 유실 방지. 재시작 시 0페이지부터.
 _panel_page = {}
-
-
-def current_page(message):
-    return _panel_page.get(message.id, 0)
 
 
 # ◀▶ 페이지 버튼 (ActionRow). 콜백은 부모 카드의 페이지를 넘긴다.
@@ -129,30 +125,6 @@ HELP_TEXT = (
     '관리자행(길마·서마): 가입 · 탈퇴 · 체크 · 점령 · 관리\n'
     '관리 → 등급 변경 · 역할 관리 · 시트 요약 · 길퀘불가 · 인원수 증감 · 명예우수계산 · 리마인드 · 경고처리'
 )
-
-
-def build_welcome_embed(guild=None):
-    # 인라인 필드로 빽빽하게 나열하지 않고, 정렬된 블록쿼트 한 덩어리로 (모던·가독성)
-    embed = discord.Embed(
-        title='길퀘 관리 센터',
-        description=(
-            '길드 퀘스트 현황을 한눈에 확인하는 공간이에요. 아래 버튼으로 바로 이용하세요.\n'
-            '​'  # 얇은 여백
-        ),
-        color=0x5865F2)
-    embed.add_field(
-        name='​',
-        value=(
-            '> 📊  **대시보드**  ·  전체 현황 (순위·남은 횟수·경고·예상)\n'
-            '> 🙋  **내 현황**  ·  내 등급·점수·남은 길퀘\n'
-            '> 🚫  **길퀘불가**  ·  이번주 불가 사유 등록\n'
-            '> ❓  **도움말**  ·  명령어 안내'
-        ),
-        inline=False)
-    if guild is not None and getattr(guild, 'icon', None):
-        embed.set_thumbnail(url=guild.icon.url)   # 길드 아이콘 썸네일
-    embed.set_footer(text='관리(체크·점령·가입 등)는 슬래시(/) 명령으로')
-    return embed
 
 
 # ── 셋업 카드 (Components V2) ──────────────────────────────────
@@ -769,8 +741,11 @@ class _ManageRow2(discord.ui.ActionRow):
 
     @discord.ui.button(label='경고처리', style=discord.ButtonStyle.primary)
     async def warning(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer()   # /주간경고처리 와 동일 — 지난 주 경고 정산(부여/차감)
-        ok, msg = await asyncio.to_thread(process_weekly_warnings, WEEKLY_QUEST_LIMIT)
+        await interaction.response.defer()   # 지난 주 경고 정산(부여/차감) 수동 실행
+        ok, msg, reached = await asyncio.to_thread(process_weekly_warnings, WEEKLY_QUEST_LIMIT)
+        if ok:
+            from alerts.alerts import post_warning_alert   # 경고 3회 도달자 → 관리 채널 카드
+            await post_warning_alert(interaction.guild, reached)
         await interaction.edit_original_response(
             view=_result(msg[:3900], accent=discord.Colour.green() if ok else discord.Colour.red()))
 

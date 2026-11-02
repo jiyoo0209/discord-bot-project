@@ -6,6 +6,8 @@
 *   [월요일 자정] 지난 주 경고 정산 — 매일완주(7회) -1 · 점령 -1 차감 후, 길퀘 미달 +1
 *   [월요일 자정] 3개월 지난 반영 완료(reflection_yn=Y) user_point 행 삭제
 *   [월요일 자정] 점령투표 채널에 그 주 토요일 점령 참여 투표 카드 게시 (vote/vote.py)
+*   [금요일 12시~] 점령 투표 미참여 길드원에게 DM (투표 카드에 발송 표시)
+*   [월요일 정산] 경고 3회 도달자 → 관리 채널 카드 (alerts)
 * (수동 정산은 관리 패널 → 경고처리 버튼)
 * author ENI
 * date   2026.07.16
@@ -15,17 +17,19 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
-from datetime import time as dtime
+from datetime import time as dtime, datetime
 
 from sheet.sheet import process_weekly_warnings, get_incomplete_members, purge_old_points
 from dashboard.dashboard import WEEKLY_QUEST_LIMIT, write_summary_sheet
 from config.guild_config import get_setting, set_setting
+from alerts.alerts import post_warning_alert, alert_guild
 from util.dates import is_sunday, is_friday, is_monday, week_range, KST
 
 # 리마인드/정산은 시스템 타임존과 무관하게 **KST 00:00** 에 고정 발송 (KST = util.dates 공용 tz)
 
 # 금요일 리마인드 발송 채널 (멘션 + 남은 횟수 공개 게시)
 REMIND_CHANNEL_ID = 1414434882439872553
+VOTE_REMIND_HOUR = 12   # 금요일 이 시각(KST) 이후 점령 투표 미참여 알림
 
 FRIDAY_DM = ('이번주 길퀘가 {n}번 남았습니다! 일요일까지 완료해주세요. '
              '개인사정이 있을 경우에는 토요일까지 길퀘불가사유를 입력해주세요!')
@@ -53,6 +57,7 @@ class Batch(commands.Cog):
         await self._purge_points()
         await self._occupy_vote()
         await self._friday_reminder()
+        await self._vote_remind()
 
     @hourly.before_loop
     async def _before(self):
@@ -83,9 +88,10 @@ class Batch(commands.Cog):
         week_id = week_range()[0]
         if get_setting('_global', '_warn_week') == week_id:
             return
-        ok, msg = await asyncio.to_thread(process_weekly_warnings, WEEKLY_QUEST_LIMIT)
+        ok, msg, reached = await asyncio.to_thread(process_weekly_warnings, WEEKLY_QUEST_LIMIT)
         if ok:
             set_setting('_global', '_warn_week', week_id)
+            await post_warning_alert(alert_guild(self.bot), reached)   # 경고 3회 도달자 → 관리 채널 카드
         print(f'[batch] {msg}')
 
     # 월요일 1회: 3개월 지난 반영 완료 포인트 정리 (경고 정산 뒤에 실행 — 정산은 지난 주 데이터만 씀).
@@ -115,6 +121,18 @@ class Batch(commands.Cog):
         if ok:
             set_setting('_global', '_vote_week', week_id)
             print('[batch] 점령 참여 투표 ' + ('이미 있음 — 건너뜀' if existed else '게시 완료'))
+
+    # 금요일 낮 12시 이후 1회: 이번 주 점령 투표 미참여자에게 DM (중복 방지는 투표 카드의 표시로 — 재시작해도 안전)
+    async def _vote_remind(self):
+        if not is_friday() or datetime.now(KST).hour < VOTE_REMIND_HOUR:
+            return
+        cog = self.bot.get_cog('OccupyVote')
+        if cog is None:
+            return
+        try:
+            await cog.remind_non_voters()
+        except Exception as e:
+            print(f'[batch] 점령 투표 미참여 알림 실패: {e}')
 
     # 금요일 1회: 이번 주 길퀘 미완료자(사유 등록자 제외)에게
     #   1) 개인 DM 리마인드 2) 리마인드 채널에 멘션 + 남은 횟수 목록 게시 (주 1회 가드)

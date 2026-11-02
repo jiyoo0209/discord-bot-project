@@ -14,7 +14,7 @@ from discord.ext import commands
 from sheet.sheet import (get_dashboard_records, calc_honor_excellent, set_honor_excellent_cnt,
                          list_active_users)
 from roleSetting.roleSetting import has_role, sync_rank_roles, rank_change_text
-from config.guild_config import get_setting, set_setting
+from config.guild_config import set_setting
 from halloffame.halloffame import post_hall_of_fame, parse_ym, default_ym
 
 MEMBER_CHANNEL_ID = 1565561284252930119   # 길드원관리 채널
@@ -176,13 +176,46 @@ class CalcModal(discord.ui.Modal, title='명예/우수 집계'):
                                                     ephemeral=True)
             return
         await interaction.response.defer(ephemeral=True, thinking=True)
+        # 미리보기: 시트에 쓰지 않고 결과만 계산 → [확정] 을 눌러야 실제 반영
+        ok, honor, excel, n, changes = await asyncio.to_thread(calc_honor_excellent, False)
+        if not ok:
+            await interaction.followup.send('시트 오류로 미리보기를 만들지 못했어요.', ephemeral=True)
+            return
+        view = PreviewView(self.card_message, ym, honor, excel, n, changes)
+        await interaction.followup.send(view=view, ephemeral=True)
+
+
+def _preview_text(ym, honor, excel, n, changes):
+    lines = [f'## 🔍 명예/우수 집계 미리보기',
+             f'-# {ym[0]}년 {ym[1]}월 명예의 전당 · 아직 반영되지 않았어요']
+    body = [f'**명예** ({len(honor)}): ' + (', '.join(honor) or '없음'),
+            f'**우수** ({len(excel)}): ' + (', '.join(excel) or '없음')]
+    chg = ['**등급 변경 예정**'] + ([f'- {nm} {o or "미지정"} → {w}' for nm, _d, o, w in changes] or ['- 없음'])
+    note = f'-# [확정] 하면 포인트 {n}개가 반영 마감(Y)되고 등급·역할이 바뀌며 명예의 전당이 올라가요. 되돌릴 수 없어요.'
+    return '\n'.join(lines), '\n'.join(body), '\n'.join(chg)[:1500], note
+
+
+class _PreviewButtons(discord.ui.ActionRow):
+    def __init__(self, owner):
+        super().__init__()
+        self._owner = owner
+
+    @discord.ui.button(label='확정', emoji='✅', style=discord.ButtonStyle.success)
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        o = self._owner
+        if o.done:
+            await interaction.response.send_message('이미 처리됐어요.', ephemeral=True)
+            return
+        o.done = True
+        o.stop()
+        await interaction.response.edit_message(view=_plain('⏳ 집계 반영 중…'))
         ok, honor, excel, n, changes = await asyncio.to_thread(calc_honor_excellent)
         if not ok:
-            await interaction.followup.send('시트 오류로 처리하지 못했어요.', ephemeral=True)
+            await interaction.edit_original_response(view=_plain('⚠️ 시트 오류로 처리하지 못했어요. 다시 시도해주세요.'))
             return
         fails = await sync_rank_roles(interaction.guild, changes)   # 디스코드 역할도 같은 등급으로
         names = lambda xs: [x.rsplit(' (', 1)[0] for x in xs]       # '닉 (30점)' → '닉'
-        posted, hall_msg = await post_hall_of_fame(interaction.guild, ym[0], ym[1], names(honor), names(excel))
+        posted, hall_msg = await post_hall_of_fame(interaction.guild, o.ym[0], o.ym[1], names(honor), names(excel))
         text = ('## 명예/우수 집계 결과\n'
                 '**명예**: ' + (', '.join(honor) or '없음') + '\n'
                 '**우수**: ' + (', '.join(excel) or '없음') +
@@ -190,9 +223,35 @@ class CalcModal(discord.ui.Modal, title='명예/우수 집계'):
                 f'-# {n}개 포인트 반영 완료 (reflection_yn → Y)\n'
                 + ('🏆 ' if posted else '⚠️ ') + hall_msg
                 + ('' if posted else ' — `/명예의전당` 으로 다시 올릴 수 있어요'))
-        await interaction.followup.send(text[:1990], ephemeral=True)
+        await interaction.edit_original_response(view=_plain(text[:3900]))
         if changes:
-            await _refresh(self.card_message)   # 목록 카드 등급 갱신
+            await _refresh(o.card_message)   # 목록 카드 등급 갱신
+
+    @discord.ui.button(label='취소', style=discord.ButtonStyle.secondary)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self._owner.done = True
+        self._owner.stop()
+        await interaction.response.edit_message(view=_plain('취소했어요. 아무것도 반영되지 않았어요.'))
+
+
+def _plain(text):
+    v = discord.ui.LayoutView(timeout=None)
+    v.add_item(discord.ui.Container(discord.ui.TextDisplay(text), accent_colour=_ACCENT))
+    return v
+
+
+class PreviewView(discord.ui.LayoutView):
+    '''명예우수집계 미리보기 카드 (본인만 보임) — [확정] 시 실제 집계·등급·역할·명예의 전당'''
+    def __init__(self, card_message, ym, honor, excel, n, changes):
+        super().__init__(timeout=600)
+        self.card_message, self.ym, self.done = card_message, ym, False
+        head, body, chg, note = _preview_text(ym, honor, excel, n, changes)
+        self.add_item(discord.ui.Container(
+            discord.ui.TextDisplay(head), discord.ui.Separator(),
+            discord.ui.TextDisplay(body), discord.ui.Separator(),
+            discord.ui.TextDisplay(chg), discord.ui.Separator(),
+            discord.ui.TextDisplay(note), _PreviewButtons(self),
+            accent_colour=_ACCENT))
 
 
 class RankCntModal(discord.ui.Modal, title='명예/우수 정원 설정'):
