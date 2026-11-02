@@ -1,0 +1,5 @@
+discord.py>=2.7
+gspread
+oauth2client
+python-dotenv
+pillow

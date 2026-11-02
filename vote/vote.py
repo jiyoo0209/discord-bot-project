@@ -292,16 +292,32 @@ class OccupyVote(commands.Cog):
     async def cog_load(self):
         self.bot.add_dynamic_items(VoteButton, ConfirmButton)   # 재시작 후에도 버튼 동작
 
+    async def find_vote(self, channel, sat):
+        '''채널 최근 메시지에서 그 주 토요일 투표 카드(마감 여부 무관)를 찾음 — 없으면 None'''
+        ids = {f'ov_{k}:{sat}' for k in ('yes', 'no', 'etc', 'ok')}
+        title = _title(sat)
+        async for msg in channel.history(limit=100):
+            if msg.author.id != self.bot.user.id:
+                continue
+            for c in _walk(msg.components):
+                if getattr(c, 'custom_id', None) in ids or title in (getattr(c, 'content', None) or ''):
+                    return msg
+        return None
+
     async def post_vote(self, sat=None):
-        '''이번 주 토요일 투표 카드 게시. 성공 여부 반환 (배치 가드용).'''
+        '''이번 주 토요일 투표 카드 게시. 이미 그 주 투표가 있으면 새로 올리지 않음.
+           반환: (성공 여부, 이미 있었는지, 메시지)'''
         sat = sat or this_saturday()
         try:
             channel = self.bot.get_channel(VOTE_CHANNEL_ID) or await self.bot.fetch_channel(VOTE_CHANNEL_ID)
-            await channel.send(view=_render(sat, {YES: [], NO: [], ETC: []}))
-            return True
+            existing = await self.find_vote(channel, sat)   # 설정 파일이 바뀌어도 중복 게시 안 되게 채널을 직접 확인
+            if existing is not None:
+                return True, True, existing
+            msg = await channel.send(view=_render(sat, {YES: [], NO: [], ETC: []}))
+            return True, False, msg
         except Exception as e:
             print(f'[vote] 점령 투표 게시 실패: {e}')
-            return False
+            return False, False, None
 
     @app_commands.command(name='점령투표', description='(길마/서마) 이번 주 토요일 점령 참여 투표를 지금 게시')
     @app_commands.guild_only()
@@ -310,9 +326,14 @@ class OccupyVote(commands.Cog):
             await interaction.response.send_message('길마/서마만 사용 가능합니다!', ephemeral=True)
             return
         await interaction.response.defer(ephemeral=True)
-        ok = await self.post_vote()
-        await interaction.followup.send(f'<#{VOTE_CHANNEL_ID}> 에 투표를 올렸어요.' if ok
-                                        else '투표 게시에 실패했어요. 봇 권한을 확인하세요.', ephemeral=True)
+        ok, existed, msg = await self.post_vote()
+        if not ok:
+            text = '투표 게시에 실패했어요. 봇 권한을 확인하세요.'
+        elif existed:
+            text = f'이번 주 투표가 이미 있어요 → {msg.jump_url}'
+        else:
+            text = f'<#{VOTE_CHANNEL_ID}> 에 투표를 올렸어요.'
+        await interaction.followup.send(text, ephemeral=True)
 
 
 async def setup(bot):

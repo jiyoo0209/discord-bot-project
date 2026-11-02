@@ -110,9 +110,12 @@ class Batch(commands.Cog):
         if get_setting('_global', '_vote_week') == week_id:
             return
         cog = self.bot.get_cog('OccupyVote')
-        if cog is not None and await cog.post_vote():
+        if cog is None:
+            return
+        ok, existed, _msg = await cog.post_vote()   # 그 주 투표가 이미 채널에 있으면 새로 안 올림
+        if ok:
             set_setting('_global', '_vote_week', week_id)
-            print('[batch] 점령 참여 투표 게시 완료')
+            print('[batch] 점령 참여 투표 ' + ('이미 있음 — 건너뜀' if existed else '게시 완료'))
 
     # 금요일 1회: 이번 주 길퀘 미완료자(사유 등록자 제외)에게
     #   1) 개인 DM 리마인드 2) 리마인드 채널에 멘션 + 남은 횟수 목록 게시 (주 1회 가드)
