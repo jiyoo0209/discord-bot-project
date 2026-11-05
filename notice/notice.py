@@ -38,8 +38,13 @@ class _PageButton(discord.ui.Button):
         self.page = page
 
     async def callback(self, interaction: discord.Interaction):
-        # 모두가 보는 카드 → 누르면 모두의 화면이 그 페이지로 바뀜
-        await interaction.response.edit_message(view=NoticeCard(self.page), attachments=[_file(self.page)])
+        # 모두가 보는 카드 → 누르면 모두의 화면이 그 페이지로 바뀜.
+        #   이미지 업로드가 3초(디스코드 응답 제한)를 넘길 수 있어 먼저 응답(defer)하고 나서 교체한다.
+        await interaction.response.defer()
+        try:
+            await interaction.edit_original_response(view=NoticeCard(self.page), attachments=[_file(self.page)])
+        except Exception as e:
+            print(f'[notice] 페이지 전환 실패({self.page + 1}쪽): {e}')
 
 
 class NoticeCard(discord.ui.LayoutView):
