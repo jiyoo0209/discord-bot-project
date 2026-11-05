@@ -1,6 +1,6 @@
 '''
 * 공지사항 카드 — 채널에 상주하는 이미지 공지 (모두에게 같은 카드)
-*   카드: [페이지 이미지] · 구분선 · [1️⃣ 길드 규칙][2️⃣ 임시 음성 채널 안내][3️⃣ 명예/우수 혜택][4️⃣ 용병 안내]
+*   카드: [페이지 이미지] · 구분선 · [1️⃣ 길드 규칙][2️⃣ 임시 음성 채널 안내] / [3️⃣ 명예/우수 혜택][4️⃣ 용병 안내]
 *   버튼을 누르면 그 페이지 이미지로 바뀜 (지금 페이지 버튼은 파란색). 재시작 후에도 버튼 동작.
 *   이미지: notice/pages/1.png ~ 4.png (같은 이름으로 파일만 바꾸면 이미지 교체)
 * + /공지사항설치 : (길마/서마) 지금 채널에 공지 카드 설치 (이전 카드는 삭제)
@@ -50,14 +50,17 @@ class _PageButton(discord.ui.Button):
 class NoticeCard(discord.ui.LayoutView):
     def __init__(self, page=0):
         super().__init__(timeout=None)
-        row = discord.ui.ActionRow()
-        for i in range(len(PAGES)):
-            row.add_item(_PageButton(i, page))
+        rows = []
+        for start in range(0, len(PAGES), 2):   # 버튼 두 개씩 한 줄 (1·2 / 3·4)
+            row = discord.ui.ActionRow()
+            for i in range(start, min(start + 2, len(PAGES))):
+                row.add_item(_PageButton(i, page))
+            rows.append(row)
         self.add_item(discord.ui.Container(
             discord.ui.MediaGallery(discord.MediaGalleryItem(f'attachment://{_FILE}',
                                                              description=PAGES[page][1])),
             discord.ui.Separator(),
-            row,
+            *rows,
             accent_colour=_ACCENT,
         ))
 
