@@ -1,7 +1,8 @@
 '''
 * 공지사항 카드 — 채널에 상주하는 이미지 공지 (모두에게 같은 카드)
 *   카드: [페이지 이미지] · 구분선 · [1️⃣ 길드 규칙][2️⃣ 임시 음성 채널 안내] / [3️⃣ 명예/우수 혜택][4️⃣ 용병 안내]
-*   버튼을 누르면 그 페이지 이미지로 바뀜 (지금 페이지 버튼은 파란색). 재시작 후에도 버튼 동작.
+*   설치할 때 4장을 한 번에 첨부(p1~p4.png) — 새 카드 형식은 카드가 가리키는 첨부만 화면에 보이므로,
+*   버튼을 누르면 가리키는 이미지만 바꿈 (다시 올리지 않아 바로 넘어감). 재시작 후에도 버튼 동작.
 *   이미지: notice/pages/1.png ~ 4.png (같은 이름으로 파일만 바꾸면 이미지 교체)
 * + /공지사항설치 : (길마/서마) 지금 채널에 공지 카드 설치 (이전 카드는 삭제)
 * date   2026.11.05
@@ -23,11 +24,12 @@ PAGES = [
     ('3️⃣', '명예/우수 혜택'),
     ('4️⃣', '용병 안내'),
 ]
-_FILE = 'notice.png'   # 메시지에 붙는 첨부 이름 (페이지마다 같은 이름으로 교체)
+def _name(page):
+    return f'p{page + 1}.png'   # 메시지에 붙는 첨부 이름 (페이지마다 따로)
 
 
-def _file(page):
-    return discord.File(os.path.join(_DIR, f'{page + 1}.png'), filename=_FILE)
+def _all_files():
+    return [discord.File(os.path.join(_DIR, f'{i + 1}.png'), filename=_name(i)) for i in range(len(PAGES))]
 
 
 class _PageButton(discord.ui.Button):
@@ -38,11 +40,15 @@ class _PageButton(discord.ui.Button):
         self.page = page
 
     async def callback(self, interaction: discord.Interaction):
-        # 모두가 보는 카드 → 누르면 모두의 화면이 그 페이지로 바뀜.
-        #   이미지 업로드가 3초(디스코드 응답 제한)를 넘길 수 있어 먼저 응답(defer)하고 나서 교체한다.
+        # 모두가 보는 카드 → 누르면 모두의 화면이 그 페이지로 바뀜. 첨부는 그대로 두고 카드만 교체(즉시).
+        have = {a.filename for a in (interaction.message.attachments if interaction.message else [])}
+        if all(_name(i) in have for i in range(len(PAGES))):
+            await interaction.response.edit_message(view=NoticeCard(self.page))
+            return
+        # 예전 방식(사진 1장)으로 설치된 카드 → 이번 한 번만 4장을 올려 새 방식으로 바꿈
         await interaction.response.defer()
         try:
-            await interaction.edit_original_response(view=NoticeCard(self.page), attachments=[_file(self.page)])
+            await interaction.edit_original_response(view=NoticeCard(self.page), attachments=_all_files())
         except Exception as e:
             print(f'[notice] 페이지 전환 실패({self.page + 1}쪽): {e}')
 
@@ -57,7 +63,7 @@ class NoticeCard(discord.ui.LayoutView):
                 row.add_item(_PageButton(i, page))
             rows.append(row)
         self.add_item(discord.ui.Container(
-            discord.ui.MediaGallery(discord.MediaGalleryItem(f'attachment://{_FILE}',
+            discord.ui.MediaGallery(discord.MediaGalleryItem(f'attachment://{_name(page)}',
                                                              description=PAGES[page][1])),
             discord.ui.Separator(),
             *rows,
@@ -87,7 +93,7 @@ class Notice(commands.Cog):
             except Exception:
                 pass
         try:
-            msg = await interaction.channel.send(view=NoticeCard(0), file=_file(0))
+            msg = await interaction.channel.send(view=NoticeCard(0), files=_all_files())   # 4장 한 번에
         except discord.Forbidden:
             await interaction.followup.send('이 채널에 메시지를 보낼 권한이 없어요. 봇 권한을 확인하세요.', ephemeral=True)
             return
