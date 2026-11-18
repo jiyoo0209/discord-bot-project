@@ -2,9 +2,10 @@
 * 연말 결산 — /연말결산 [연도] (길마 전용, 본인만 보임). 디자인용 원본 데이터를 정리해서 보여줌
 *   별도 시트·기록 없이 이미 있는 데이터만 읽음:
 *     💬 채팅  : 봇이 읽을 수 있는 모든 채팅 채널(+스레드)의 그해 메시지를 처음부터 읽음
-*                → 채팅왕 · 리액션 부자 · 사진작가상 · 최애 서버 이모지 TOP3 · 시간대/요일 · 올해 첫 메시지
+*                → 채팅왕 · 리액션 부자 · 사진작가상 · 최애 서버 이모지 TOP3 · 올해 첫 메시지
 *     🎙️ 통화  : 로그 채널(serverlog)의 📥입장 / 🔀이동 / 📤퇴장 카드로 통화 구간을 복원
-*                → 통화왕 · 마라톤상 · 올빼미상(0~6시) · 찰떡 듀오(같은 방에 함께 있던 시간)
+*                → 통화왕 · 마라톤왕 · 올빼미상(0~6시) · 찰떡 듀오 · 시간대/요일 그래프(통화 시간 기준)
+*     👤 길드원별 : 총 통화 시간 · 채팅 수 · 통화가 가장 활발한 시간대/요일
 *     🎮 게임  : 임시채널생성 채널의 음성방 카드 → 올해의 게임(방 이름별 생성 횟수 · 사용 시간)
 *   결과: 요약 메시지 + 전체 데이터 .txt / .json 첨부 (15분이 넘게 걸리면 DM 으로 보냄)
 * date   2026.11.18
@@ -25,7 +26,7 @@ from util.dates import KST
 from serverlog.serverlog import LOG_CHANNEL_ID
 from voice.voice import WATCH_CHANNEL_ID as ROOM_CHANNEL_ID, _card_info, _walk
 
-TOP = 10                       # 순위 표시 인원
+TOP = 5                        # 순위 표시 인원
 OWL_START, OWL_END = 0, 6      # 올빼미 시간대 (KST 0시 ~ 6시)
 WEEKDAYS = ['월', '화', '수', '목', '금', '토', '일']
 _EMOJI_RE = re.compile(r'<a?:\w+:(\d+)>')
@@ -68,7 +69,7 @@ async def chat_stats(guild, start, end, progress=None):
     emoji_ids = {e.id: e for e in guild.emojis}
     msgs, imgs, reacts = Counter(), Counter(), Counter()
     emoji_use, hours, wdays = Counter(), Counter(), Counter()
-    names = {}
+    names, unames = {}, {}
     first = None          # (작성시각, 이름, 내용, 링크)
     best = None           # (리액션 수, 이름, 내용, 링크)
     total, skipped = 0, []
@@ -80,6 +81,7 @@ async def chat_stats(guild, start, end, progress=None):
                     continue
                 uid = m.author.id
                 names[uid] = m.author.display_name
+                unames[uid] = m.author.name
                 total += 1
                 msgs[uid] += 1
                 t = _kst(m.created_at)
@@ -106,7 +108,7 @@ async def chat_stats(guild, start, end, progress=None):
         if progress and idx % 5 == 0:
             await progress(f'💬 채팅 읽는 중… 채널 {idx}/{len(channels)} · 메시지 {total:,}개')
     return {
-        'total': total, 'names': names, 'msgs': msgs, 'imgs': imgs, 'reacts': reacts,
+        'total': total, 'names': names, 'unames': unames, 'msgs': msgs, 'imgs': imgs, 'reacts': reacts,
         'emoji_use': emoji_use, 'emoji_obj': emoji_ids, 'hours': hours, 'wdays': wdays,
         'first': first, 'best': best, 'channels': len(channels), 'skipped': skipped,
     }
@@ -194,7 +196,18 @@ def voice_stats(sessions):
     owl = Counter()
     rooms = Counter()
     by_room = defaultdict(list)
+    hours, wdays = Counter(), Counter()
+    u_hours, u_wdays = defaultdict(Counter), defaultdict(Counter)
     for user, room, s, e in sessions:
+        t, end_ = _kst(s), _kst(e)
+        while t < end_:                            # 한 시간 단위로 잘라서 시간대·요일에 분 배분
+            nxt = min(end_, t.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1))
+            mm = (nxt - t).total_seconds() / 60
+            hours[t.hour] += mm
+            wdays[t.weekday()] += mm
+            u_hours[user][t.hour] += mm
+            u_wdays[user][t.weekday()] += mm
+            t = nxt
         mins = max(0.0, (e - s).total_seconds() / 60)
         total[user] += mins
         rooms[room] += mins
@@ -221,7 +234,8 @@ def voice_stats(sessions):
                 if ov > 0:
                     duo[tuple(sorted((u1, u2)))] += ov / 60
     longest.sort(reverse=True)
-    return {'total': total, 'longest': longest, 'owl': owl, 'duo': duo, 'rooms': rooms}
+    return {'total': total, 'longest': longest, 'owl': owl, 'duo': duo, 'rooms': rooms,
+            'hours': hours, 'wdays': wdays, 'u_hours': u_hours, 'u_wdays': u_wdays}
 
 
 # ──────────────────────────────────────────────────────────────
@@ -263,72 +277,114 @@ def _rank(counter, fmt, name_of=lambda k: k, n=TOP):
     return rows or ['(데이터 없음)']
 
 
-def build_report(year, chat, voice, vnames, games, game_min, notes):
+def _top1(counter):
+    return counter.most_common(1)[0] if counter and counter.most_common(1)[0][1] > 0 else None
+
+
+def members(guild, chat, voice, vnames):
+    '''길드원별 통계 — 통화 로그는 사용자명, 채팅은 ID 로 모이므로 사용자명으로 합침'''
+    chat_by = Counter()
+    disp = {}
+    for uid, c in chat['msgs'].items():
+        un = chat['unames'].get(uid, str(uid))
+        chat_by[un] += c
+        disp[un] = chat['names'].get(uid, un)
+    for un, d in vnames.items():
+        disp.setdefault(un, d)
+    for m in getattr(guild, 'members', []):   # 지금 서버 닉네임 우선
+        if not m.bot and m.name in disp:
+            disp[m.name] = m.display_name
+    rows = []
+    for un in disp:
+        h, w = _top1(voice['u_hours'].get(un, Counter())), _top1(voice['u_wdays'].get(un, Counter()))
+        rows.append({
+            'name': disp[un], 'user': un,
+            'voice_min': round(voice['total'].get(un, 0)),
+            'messages': chat_by.get(un, 0),
+            'top_hour': f'{h[0]:02d}시' if h else None,
+            'top_weekday': f'{WEEKDAYS[w[0]]}요일' if w else None,
+            'hours_min': {f'{x:02d}': round(voice['u_hours'].get(un, {}).get(x, 0)) for x in range(24)},
+            'weekdays_min': {WEEKDAYS[x]: round(voice['u_wdays'].get(un, {}).get(x, 0)) for x in range(7)},
+        })
+    rows.sort(key=lambda r: (-r['voice_min'], -r['messages'], r['name']))
+    return rows
+
+
+def build_report(year, chat, voice, vnames, games, members_, notes):
     cn = lambda uid: chat['names'].get(uid, str(uid))
     vn = lambda user: vnames.get(user, user)
-    L = [f'# 🌸 마커 {year} 연말 결산 데이터', '']
-    # 통화
-    L += ['## 🎙️ 통화왕 (총 통화 시간)'] + _rank(voice['total'], _hm, vn) + ['']
-    L += ['## 🏃 마라톤상 (한 번에 가장 오래)']
-    L += [f'{i}. {vn(u)} — {_hm(m)} · 🔊 {room} · {_kst(s):%m/%d %H:%M} 시작'
-          for i, (m, u, room, s) in enumerate(voice['longest'][:TOP], 1)] or ['(데이터 없음)']
-    L += ['', '## 🦉 올빼미상 (0~6시 통화 시간)'] + _rank(voice['owl'], _hm, vn) + ['']
-    L += ['## 💞 찰떡 듀오 (같은 통화방에 함께 있던 시간)'] + _rank(voice['duo'], _hm, lambda p: f'{vn(p[0])} & {vn(p[1])}') + ['']
-    L += ['## 🎮 올해의 게임 (임시 음성방 생성 횟수)']
-    L += [f'{i}. {g} — {c}회 · 총 {_hm(game_min.get(g, 0))}' for i, (g, c) in enumerate(games.most_common(TOP), 1)] or ['(데이터 없음)']
-    L += ['']
-    # 채팅
-    L += [f'## 💬 채팅왕 (메시지 수 · 전체 {chat["total"]:,}개)'] + _rank(chat['msgs'], lambda v: f'{v:,}개', cn) + ['']
-    L += ['## 💖 리액션 부자 (받은 리액션 수)'] + _rank(chat['reacts'], lambda v: f'{v:,}개', cn)
-    if chat['best']:
-        rc, who, text, url = chat['best']
-        L += [f'- 가장 반응 좋았던 메시지: {who} · 리액션 {rc}개 · "{text}" ({url})']
-    L += ['', '## 📸 사진작가상 (올린 사진 수)'] + _rank(chat['imgs'], lambda v: f'{v:,}장', cn) + ['']
-    L += ['## 😍 최애 이모지 TOP 3 (서버 이모지 · 메시지+리액션)']
-    eo = chat['emoji_obj']
-    L += [f'{i}. :{eo[e].name}: {str(eo[e])} — {c:,}회' for i, (e, c) in enumerate(chat['emoji_use'].most_common(3), 1)] or ['(데이터 없음)']
-    L += ['', '## ⏰ 가장 활발한 시간대 (메시지 수, KST)']
-    L += [f'{h:02d}시 — {chat["hours"].get(h, 0):,}' for h in range(24)]
-    if chat['hours']:
-        h, c = chat['hours'].most_common(1)[0]
-        L += [f'→ 1위: {h:02d}시 ({c:,}개)']
-    L += ['', '## 📅 가장 활발한 요일 (메시지 수)']
-    L += [f'{WEEKDAYS[d]} — {chat["wdays"].get(d, 0):,}' for d in range(7)]
-    if chat['wdays']:
-        d, c = chat['wdays'].most_common(1)[0]
-        L += [f'→ 1위: {WEEKDAYS[d]}요일 ({c:,}개)']
-    L += ['', '## 🎉 올해 첫 메시지']
-    if chat['first']:
-        t, who, text, url = chat['first']
-        L += [f'- 작성자: {who}', f'- 작성 시각: {_kst(t):%Y-%m-%d %H:%M:%S}', f'- 내용: {text}', f'- 링크: {url}']
+    L = [f'# 🌸 마커 {year} 연말 결산', '']
+    L += ['## 🎙️ 통화왕 (총 통화 시간 TOP 5)'] + _rank(voice['total'], _hm, vn) + ['']
+    L += ['## 🏃 마라톤왕 (한 번에 가장 오래 머문 기록)']
+    if voice['longest']:
+        m, u, room, st = voice['longest'][0]
+        L += [f'{vn(u)} — {_hm(m)}  (🔊 {room} · {_kst(st):%m/%d %H:%M} 시작)']
     else:
         L += ['(데이터 없음)']
+    L += ['', '## 🦉 올빼미상 (0~6시 통화 시간 TOP 5)'] + _rank(voice['owl'], _hm, vn) + ['']
+    L += ['## 💞 찰떡 듀오 (같은 통화방에 함께 있던 시간이 가장 긴 두 사람)']
+    d = _top1(voice['duo'])
+    L += [f'{vn(d[0][0])} & {vn(d[0][1])}  (함께 {_hm(d[1])})' if d else '(데이터 없음)', '']
+    L += ['## 🎮 올해의 게임 (임시 음성방 이름 TOP 5)'] + _rank(games, lambda v: f'{v}회') + ['']
+    L += [f'## 💬 채팅왕 ({year}년 메시지 수 TOP 5)'] + _rank(chat['msgs'], lambda v: f'{v:,}회', cn) + ['']
+    L += ['## 💖 리액션 부자']
+    r = _top1(chat['reacts'])
+    L += [f'- 가장 많이 받은 사람: {cn(r[0])} — 리액션 {r[1]:,}개' if r else '- 가장 많이 받은 사람: (데이터 없음)']
+    if chat['best']:
+        rc, who, text, url = chat['best']
+        L += [f'- 가장 반응 좋았던 메시지: {who} · 리액션 {rc}개', f'  "{text}"', f'  {url}']
+    L += ['', '## 📸 사진작가상']
+    p = _top1(chat['imgs'])
+    L += [f'{cn(p[0])} — {p[1]:,}회' if p else '(데이터 없음)', '']
+    L += ['## 😍 최애 이모지 TOP 3 (서버 이모지)']
+    eo = chat['emoji_obj']
+    L += [f'{i}. :{eo[e].name}: {str(eo[e])} — {c:,}회' for i, (e, c) in enumerate(chat['emoji_use'].most_common(3), 1)] or ['(데이터 없음)']
+    L += ['', '## 🎉 올해의 첫 메시지']
+    if chat['first']:
+        t, who, text, url = chat['first']
+        L += [f'- 닉네임: {who}', f'- 시각: {_kst(t):%Y-%m-%d %H시 %M분 %S초}', f'- 내용: {text}', f'- 링크: {url}']
+    else:
+        L += ['(데이터 없음)']
+    L += ['', '## ⏰ 가장 활발한 시간대 (통화방 기준 · 시간대별 총 통화 시간)']
+    L += [f'{h:02d}시 — {_hm(voice["hours"].get(h, 0))}' for h in range(24)]
+    h = _top1(voice['hours'])
+    if h:
+        L += [f'→ 1위: {h[0]:02d}시']
+    L += ['', '## 📅 가장 활발한 요일 (통화방 기준 · 요일별 총 통화 시간)']
+    L += [f'{WEEKDAYS[x]} — {_hm(voice["wdays"].get(x, 0))}' for x in range(7)]
+    w = _top1(voice['wdays'])
+    if w:
+        L += [f'→ 1위: {WEEKDAYS[w[0]]}요일']
+    L += ['', f'## 👤 길드원별 {year} 연말 정산 (총 통화 시간 · 채팅 수 · 통화 가장 활발한 시간대/요일)']
+    L += [f'- {r["name"]} — 통화 {_hm(r["voice_min"])} · 채팅 {r["messages"]:,}회 · '
+          f'{r["top_hour"] or "-"} · {r["top_weekday"] or "-"}' for r in members_] or ['(데이터 없음)']
     L += ['', '## ℹ️ 데이터 범위'] + [f'- {n}' for n in notes]
     return '\n'.join(L)
 
 
-def build_json(year, chat, voice, vnames, games, game_min):
+def build_json(year, chat, voice, vnames, games, members_):
     cn = lambda uid: chat['names'].get(uid, str(uid))
     vn = lambda user: vnames.get(user, user)
     eo = chat['emoji_obj']
+    m = voice['longest'][0] if voice['longest'] else None
+    d, r, p = _top1(voice['duo']), _top1(chat['reacts']), _top1(chat['imgs'])
     return {
         'year': year,
-        'voice_total_min': [{'name': vn(u), 'minutes': round(m)} for u, m in voice['total'].most_common()],
-        'marathon': [{'name': vn(u), 'minutes': round(m), 'channel': r, 'start': _kst(s).isoformat()}
-                     for m, u, r, s in voice['longest'][:TOP]],
-        'owl_min': [{'name': vn(u), 'minutes': round(m)} for u, m in voice['owl'].most_common() if m > 0],
-        'duo_min': [{'names': [vn(p[0]), vn(p[1])], 'minutes': round(m)} for p, m in voice['duo'].most_common(TOP)],
-        'games': [{'name': g, 'rooms': c, 'minutes': round(game_min.get(g, 0))} for g, c in games.most_common()],
-        'chat_total': chat['total'],
-        'chat': [{'name': cn(u), 'messages': c} for u, c in chat['msgs'].most_common()],
-        'reactions_received': [{'name': cn(u), 'count': c} for u, c in chat['reacts'].most_common() if c],
+        'call_king': [{'name': vn(u), 'minutes': round(v)} for u, v in voice['total'].most_common(TOP)],
+        'marathon': {'name': vn(m[1]), 'minutes': round(m[0]), 'channel': m[2], 'start': _kst(m[3]).strftime('%Y-%m-%d %H:%M')} if m else None,
+        'owl': [{'name': vn(u), 'minutes': round(v)} for u, v in voice['owl'].most_common(TOP) if v > 0],
+        'duo': {'names': [vn(d[0][0]), vn(d[0][1])], 'minutes': round(d[1])} if d else None,
+        'games': [{'name': g, 'count': c} for g, c in games.most_common(TOP)],
+        'chat_king': [{'name': cn(u), 'messages': c} for u, c in chat['msgs'].most_common(TOP)],
+        'reaction_rich': {'name': cn(r[0]), 'reactions': r[1]} if r else None,
         'best_message': dict(zip(('reactions', 'name', 'content', 'url'), chat['best'])) if chat['best'] else None,
-        'photos': [{'name': cn(u), 'count': c} for u, c in chat['imgs'].most_common() if c],
+        'photographer': {'name': cn(p[0]), 'count': p[1]} if p else None,
         'emoji_top3': [{'name': eo[e].name, 'id': e, 'url': eo[e].url, 'count': c} for e, c in chat['emoji_use'].most_common(3)],
-        'hours': {f'{h:02d}': chat['hours'].get(h, 0) for h in range(24)},
-        'weekdays': {WEEKDAYS[d]: chat['wdays'].get(d, 0) for d in range(7)},
         'first_message': ({'name': chat['first'][1], 'time': _kst(chat['first'][0]).strftime('%Y-%m-%d %H:%M:%S'),
                            'content': chat['first'][2], 'url': chat['first'][3]} if chat['first'] else None),
+        'voice_hours_min': {f'{h:02d}': round(voice['hours'].get(h, 0)) for h in range(24)},
+        'voice_weekdays_min': {WEEKDAYS[x]: round(voice['wdays'].get(x, 0)) for x in range(7)},
+        'members': members_,
     }
 
 
@@ -364,7 +420,8 @@ class YearEnd(commands.Cog):
             await progress('🎙️ 통화 기록 정리 중…')
             sessions, vnames, verr = await voice_sessions(guild, start, end, progress)
             vstat = voice_stats(sessions)
-            games, game_min, gerr = await game_stats(guild, start, end)
+            games, _game_min, gerr = await game_stats(guild, start, end)
+            mem = members(guild, chat, vstat, vnames)
             first_log = min((s for _u, _r, s, _e in sessions), default=None)
             notes = [f'채팅: {year}년 메시지 {chat["total"]:,}개 · 읽은 채널 {chat["channels"]}개 (봇 메시지 제외)',
                      '통화: 로그 채널 입장/퇴장 기록 기준' + (f' · {_kst(first_log):%Y-%m-%d}부터' if first_log else ' · 기록 없음')
@@ -374,12 +431,13 @@ class YearEnd(commands.Cog):
             if chat['skipped']:
                 notes.append('읽지 못한 채널: ' + ', '.join(chat['skipped'][:15]))
             notes += [x for x in (verr, gerr) if x]
-            report = build_report(year, chat, vstat, vnames, games, game_min, notes)
-            data = build_json(year, chat, vstat, vnames, games, game_min)
+            report = build_report(year, chat, vstat, vnames, games, mem, notes)
+            data = build_json(year, chat, vstat, vnames, games, mem)
             files = lambda: [discord.File(io.BytesIO(report.encode('utf-8')), filename=f'연말결산_{year}.txt'),
                              discord.File(io.BytesIO(json.dumps(data, ensure_ascii=False, indent=2).encode('utf-8')),
                                           filename=f'연말결산_{year}.json')]
-            summary = report if len(report) <= 1900 else report[:1850].rsplit('\n', 1)[0] + '\n…(전체는 첨부 파일)'
+            head = report.split('\n## ⏰')[0]   # 메시지에는 수상 항목만, 그래프·길드원별은 첨부 파일
+            summary = (head if len(head) <= 1850 else head[:1850].rsplit('\n', 1)[0]) + '\n\n⏰ 시간대·요일 그래프 / 👤 길드원별 정산은 첨부 파일에 있어요.'
             try:
                 await interaction.followup.send(summary, files=files(), ephemeral=True)
             except Exception:
