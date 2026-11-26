@@ -44,6 +44,7 @@
 ### 👥 길드원 목록 (길드원관리 채널 · 봇 시작 시 자동 설치)
 - 등급 이모지 + 닉네임 + 경고 횟수 (등급순 → 가나다순)
 - **[탈퇴]** 닉네임 팝업 → 확인 카드 → 시트 데이터 삭제
+- **[닉네임변경]** 기존·새 닉네임 팝업 → `user`·`user_point`·`quest_deny_reason` 닉네임 일괄 변경 + `user_name_history` 기록 (서버 닉네임은 그대로)
 - **[명예우수집계]** 연월 입력 → **미리보기 카드**(명단·점수·등급 변경 예정) → **[확정]** 시
   등급 변경 · 디스코드 역할 변경 · 포인트 반영 마감 · 명예의 전당 게시
 - **[명예우수설정]** 명예·우수 정원 입력 → 일반 정원 자동 계산
@@ -114,6 +115,7 @@
 | `user_rank` | rank_name · rank_cnt (길마·서마·명예·우수·일반 정원 + 전체=수식) |
 | `user_point` | user_name · date(YYYYMMDD) · point · capture_yn(점령 Y) · reflection_yn |
 | `quest_deny_reason` | user_name · date · reason |
+| `user_name_history` | before_name · after_name · changed_at · changed_by (닉네임 변경 이력, 첫 변경 때 자동 생성) |
 | `요약` | 봇이 매시간 자동 작성 (직접 수정 X) |
 
 ---

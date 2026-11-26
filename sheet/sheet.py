@@ -11,9 +11,9 @@ import time
 import threading
 import functools
 from collections import defaultdict
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from dotenv import load_dotenv
-from util.dates import today_int, week_range, is_sunday, last_week_range, last_saturday, kst_today
+from util.dates import KST, today_int, week_range, is_sunday, last_week_range, last_saturday, kst_today
 
 load_dotenv()
 
@@ -85,6 +85,7 @@ SHEET_HEADERS = {
     'user_rank': ['rank_name', 'rank_cnt'],
     'user_point': ['user_name', 'date', 'point', 'capture_yn', 'reflection_yn'],
     'quest_deny_reason': ['user_name', 'date', 'reason'],
+    'user_name_history': ['before_name', 'after_name', 'changed_at', 'changed_by'],
 }
 
 # 워크시트 가져오기 (핸들 캐시 — 셀 데이터가 아니라 시트 위치만 캐시하므로 안전)
@@ -431,6 +432,43 @@ def remove_user(user_name):
         err_msg = f'오류: {e}'
         print(err_msg)
         return False, err_msg
+
+
+# 닉네임 변경 — user / user_point / quest_deny_reason 의 A열(user_name)을 모두 새 닉네임으로 바꾸고
+#   user_name_history 에 기록. 디스코드 서버 닉네임은 건드리지 않음. 반환: (성공여부, 메시지)
+@_locked
+def rename_user(old_name, new_name, changed_by=''):
+    old_name, new_name = old_name.strip(), new_name.strip()
+    try:
+        if not old_name or not new_name:
+            return False, '닉네임을 입력해주세요.'
+        if old_name == new_name:
+            return False, '기존 닉네임과 새 닉네임이 같아요.'
+        user_ws = get_worksheet('user')
+        if not user_ws.find(old_name, in_column=1):
+            return False, f'{old_name}은(는) 존재하지 않는 유저입니다!'
+        if user_ws.find(new_name, in_column=1):
+            return False, f'{new_name}은(는) 이미 등록된 닉네임이에요.'
+        counts = {}
+        for tab in ('user', 'user_point', 'quest_deny_reason'):
+            ws = get_worksheet(tab)
+            cells = ws.findall(old_name, in_column=1)
+            for c in cells:
+                c.value = new_name
+            if cells:
+                ws.update_cells(cells, value_input_option='RAW')
+            counts[tab] = len(cells)
+        now = datetime.now(KST).strftime('%Y-%m-%d %H:%M')
+        get_worksheet('user_name_history').append_row([old_name, new_name, now, changed_by],
+                                                      value_input_option='RAW')
+        try:
+            _sort_users()   # 가나다순 정렬 유지
+        except Exception as e:
+            print(f'[sort] 건너뜀: {e}')
+        return True, (f'{old_name} → {new_name} 닉네임을 변경했어요.\n'
+                      f'-# 시트 반영: 포인트 {counts["user_point"]}건 · 길퀘불가사유 {counts["quest_deny_reason"]}건')
+    except Exception as e:
+        return False, f'오류: {e}'
 
 
 # ── 퀘스트 포인트/사유 ──────────────────────────────────────────

@@ -1,7 +1,8 @@
 '''
 * 길드원 목록 카드 (길드원관리 채널) — 등급별 명단 + 경고 횟수
-*   버튼: [탈퇴](닉네임 팝업 → 확인 카드) [명예우수집계] [명예우수설정](명예·우수 정원 팝업) [🔄](갱신)
-*   🔄 는 누구나, 나머지는 길마·서마. 탈퇴 완료 시 목록 자동 갱신.
+*   버튼: [탈퇴](닉네임 팝업 → 확인 카드) [닉네임변경](기존·새 닉네임 팝업 → 시트 전체 변경 + 이력)
+*         [명예우수집계] [명예우수설정](명예·우수 정원 팝업) [🔄](갱신)
+*   🔄 는 누구나, 나머지는 길마·서마. 탈퇴·닉네임 변경 시 목록 자동 갱신.
 * 봇 시작 시 길드원관리 채널에 카드를 자동 설치 (이미 있으면 그 카드를 최신으로 갱신)
 * date   2026.10.30
 '''
@@ -12,7 +13,7 @@ import discord
 from discord.ext import commands
 
 from sheet.sheet import (get_dashboard_records, calc_honor_excellent, set_honor_excellent_cnt,
-                         list_active_users)
+                         list_active_users, rename_user)
 from roleSetting.roleSetting import has_role, sync_rank_roles, rank_change_text
 from config.guild_config import set_setting
 from halloffame.halloffame import post_hall_of_fame, parse_ym, default_ym
@@ -79,6 +80,13 @@ class _Buttons(discord.ui.ActionRow):
             await interaction.response.send_message(_NO_PERM, ephemeral=True)
             return
         await interaction.response.send_modal(LeaveModal(interaction.message))
+
+    @discord.ui.button(label='닉네임변경', style=discord.ButtonStyle.secondary, custom_id='ml_rename')
+    async def rename(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not _is_staff(interaction):
+            await interaction.response.send_message(_NO_PERM, ephemeral=True)
+            return
+        await interaction.response.send_modal(RenameModal(interaction.message))
 
     @discord.ui.button(label='명예우수집계', style=discord.ButtonStyle.secondary, custom_id='ml_calc')
     async def calc(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -158,6 +166,23 @@ class LeaveModal(discord.ui.Modal, title='길드원 탈퇴'):
             await view.wait()
             await _refresh(self.card_message)
         asyncio.create_task(_after())
+
+
+class RenameModal(discord.ui.Modal, title='닉네임 변경'):
+    기존 = discord.ui.TextInput(label='기존 테런 닉네임', placeholder='시트에 등록된 닉네임', max_length=32)
+    새닉네임 = discord.ui.TextInput(label='새 테런 닉네임', max_length=32)
+
+    def __init__(self, card_message):
+        super().__init__()
+        self.card_message = card_message
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        ok, msg = await asyncio.to_thread(rename_user, str(self.기존), str(self.새닉네임),
+                                          interaction.user.display_name)
+        await interaction.followup.send(('✅ ' if ok else '') + msg, ephemeral=True)
+        if ok:
+            await _refresh(self.card_message)
 
 
 class CalcModal(discord.ui.Modal, title='명예/우수 집계'):
