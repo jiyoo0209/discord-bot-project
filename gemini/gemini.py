@@ -10,6 +10,7 @@
 import os
 import re
 import time
+import socket
 import asyncio
 from datetime import datetime, timedelta, timezone
 
@@ -98,7 +99,10 @@ class GeminiChat(commands.Cog):
     async def cog_load(self):
         if not self.key:
             print('[gemini] GEMINI_API_KEY 가 없어서 대화 기능을 끕니다')
-        self.session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=60))
+        # IPv4 로만 연결 — 호스팅 서버에서 IPv6 로 붙으려다 응답 없이 시간 초과되는 경우가 있음
+        self.session = aiohttp.ClientSession(
+            connector=aiohttp.TCPConnector(family=socket.AF_INET),
+            timeout=aiohttp.ClientTimeout(total=90, sock_connect=15))
 
     async def cog_unload(self):
         if self.session:
@@ -138,8 +142,12 @@ class GeminiChat(commands.Cog):
             try:
                 async with message.channel.typing():
                     status, data = await self._ask(self.history + [turn])
+            except asyncio.TimeoutError:
+                print('[gemini] 요청 실패: 시간 초과 (Gemini 서버 연결/응답 없음)')
+                await self._reply(message, '지금은 대답할 수 없어요. 잠시 후 다시 말 걸어주세요!')
+                return
             except Exception as e:
-                print(f'[gemini] 요청 실패: {e}')
+                print(f'[gemini] 요청 실패: {type(e).__name__} {e!r}')
                 await self._reply(message, '지금은 대답할 수 없어요. 잠시 후 다시 말 걸어주세요!')
                 return
             if status == 429:
