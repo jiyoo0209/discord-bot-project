@@ -4,7 +4,8 @@
 *   대화 기억: 채널 대화를 최근 MAX_TURNS 개만 기억 (누가 말했는지 닉네임 포함), IDLE_MIN 분 조용하면 잊음
 *   사진·파일·스티커 등 글이 아닌 것만 올리면 "텍스트만 답장 가능해" 안내, 글과 같이 올리면 글에만 대답
 *   사용 한도 초과(429) → "사용 한도가 초과되었습니다! ○월 ○일 ○시 ○분에 사용 가능합니다!"
-*   필요: .env 에 GEMINI_API_KEY (선택: GEMINI_MODEL — 비우면 최신 Flash 별칭 사용)
+*   빠른 응답: 가벼운 Flash-Lite 가 먼저 답하고, 생각 단계 최소화, 한 번에 최대 WAIT 초만 기다린 뒤 다른 모델로 넘김
+*   필요: .env 에 GEMINI_API_KEY (선택: GEMINI_MODEL — 비우면 최신 Flash-Lite 별칭 사용)
 * date   2026.11.26
 '''
 import os
@@ -21,8 +22,9 @@ from discord.ext import commands
 from util.dates import KST
 
 CHAT_CHANNEL_ID = 1575334446092128337            # 이 채널에 올라온 글에 대답
-MODEL = os.getenv('GEMINI_MODEL') or 'gemini-flash-latest'   # 별칭 — 모델이 바뀌어도 최신 Flash 로 따라감
-FALLBACK = 'gemini-flash-lite-latest'   # 기본 모델이 붐비면(503) 대신 쓰는 가벼운 모델
+MODEL = os.getenv('GEMINI_MODEL') or 'gemini-flash-lite-latest'   # 빠른 가벼운 모델 (별칭 — 최신으로 따라감)
+FALLBACK = 'gemini-flash-latest'   # 기본 모델이 붐비거나 느리면 대신 쓰는 모델
+WAIT = 25               # 모델 하나당 기다리는 최대 초
 API = 'https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent'
 MAX_TURNS = 20          # 기억하는 대화 수 (질문+답 합쳐서)
 IDLE_MIN = 30           # 이 시간 동안 대화가 없으면 기억 비움
@@ -96,6 +98,7 @@ class GeminiChat(commands.Cog):
         self.lock = asyncio.Lock()
         self.session = None
         self.blocked_until = None  # 한도 초과 중이면 다시 쓸 수 있는 시각 (그 전엔 요청 안 보냄)
+        self.think_off = True      # '생각 최소화' 옵션 (모델이 지원 안 하면 자동으로 끔)
 
     async def cog_load(self):
         if not self.key:
@@ -103,19 +106,16 @@ class GeminiChat(commands.Cog):
         # IPv4 로만 연결 — 호스팅 서버에서 IPv6 로 붙으려다 응답 없이 시간 초과되는 경우가 있음
         self.session = aiohttp.ClientSession(
             connector=aiohttp.TCPConnector(family=socket.AF_INET),
-            timeout=aiohttp.ClientTimeout(total=90, sock_connect=15))
+            timeout=aiohttp.ClientTimeout(total=WAIT, sock_connect=10))
 
     async def cog_unload(self):
         if self.session:
             await self.session.close()
 
     async def _ask(self, contents):
-        '''붐빔(500/503)이면 2초 뒤 한 번 더, 그래도 안 되면 가벼운 모델로 시도'''
+        '''기본 모델이 붐비거나(500/503) WAIT 초 안에 답이 없으면 다른 모델로 한 번 더. 시간 초과면 status 0'''
         status, data = await self._post(MODEL, contents)
-        if status in (500, 503):
-            await asyncio.sleep(2)
-            status, data = await self._post(MODEL, contents)
-        if status in (500, 503) and FALLBACK != MODEL:
+        if status in (0, 500, 503) and FALLBACK != MODEL:
             status, data = await self._post(FALLBACK, contents)
         return status, data
 
@@ -123,12 +123,22 @@ class GeminiChat(commands.Cog):
         body = {
             'systemInstruction': {'parts': [{'text': PERSONAS[PERSONA] + '\n' + RULES}]},
             'contents': contents,
-            'generationConfig': {'maxOutputTokens': 4096, 'temperature': 0.8},
+            'generationConfig': {'maxOutputTokens': 1500, 'temperature': 0.8},
         }
-        async with self.session.post(API.format(model), json=body,
-                                     headers={'x-goog-api-key': self.key}) as r:
-            data = await r.json(content_type=None)
-            return r.status, data
+        if self.think_off:   # 답하기 전 '생각' 단계를 최소로 → 훨씬 빨리 답함
+            body['generationConfig']['thinkingConfig'] = {'thinkingLevel': 'minimal'}
+        try:
+            async with self.session.post(API.format(model), json=body,
+                                         headers={'x-goog-api-key': self.key}) as r:
+                data = await r.json(content_type=None)
+                status = r.status
+        except asyncio.TimeoutError:
+            print(f'[gemini] {model} {WAIT}초 안에 응답 없음')
+            return 0, None
+        if status == 400 and self.think_off and 'thinking' in str(data).lower():
+            self.think_off = False   # 이 모델은 생각 최소화 옵션을 지원 안 함 → 빼고 다시
+            return await self._post(model, contents)
+        return status, data
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
@@ -165,8 +175,8 @@ class GeminiChat(commands.Cog):
                 self.blocked_until = _reset_time(data)
                 await self._reply(message, f'사용 한도가 초과되었습니다! {_kst_text(self.blocked_until)}에 사용 가능합니다!')
                 return
-            if status in (500, 503):
-                print(f'[gemini] 붐빔 {status} (재시도·대체 모델도 실패)')
+            if status in (0, 500, 503):
+                print(f'[gemini] 붐빔/지연 {status} (대체 모델도 실패)')
                 await self._reply(message, '헉 지금 제미나이가 사람이 너무 많아서 바쁘대 ㅠㅠ 1~2분 뒤에 다시 말 걸어줘!!')
                 return
             if status != 200:
