@@ -6,7 +6,8 @@
 *   필요: Server Members Intent, Message Content Intent (둘 다 이미 사용 중)
 * date   2026.10.30
 '''
-import io
+import os
+import shutil
 from collections import OrderedDict
 from datetime import datetime, timezone
 
@@ -48,10 +49,12 @@ def _vc(channel):
     return f'🔊 `{channel.name.replace("`", "")}`'
 
 
-# 지워진 첨부 보존: 감시 채널에 올라온 첨부를 미리 내려받아 두고(메모리, 오래된 것부터 정리),
+# 지워진 첨부 보존: 감시 채널에 올라온 첨부를 미리 내려받아 두고(디스크 임시 폴더, 오래된 것부터 정리),
 #   삭제되면 로그 채널에 파일로 다시 올림 → 로그 메시지에서 계속 열어볼 수 있음
+#   램 절약: 메모리가 아니라 디스크에 저장 (램 128MB 서버). 봇이 다시 켜지면 폴더를 비움.
 FILE_MAX = 8 * 1024 * 1024        # 파일 1개 최대 (디스코드 업로드 한도 고려)
-STORE_MAX = 60 * 1024 * 1024      # 보관 총량 (넘으면 오래된 메시지부터 버림)
+STORE_MAX = 60 * 1024 * 1024      # 보관 총량 — 디스크 (넘으면 오래된 메시지부터 버림)
+STORE_DIR = os.path.join(os.path.dirname(__file__), '_deleted_cache')
 
 
 def _embed(user, colour, text, footer=None, thumb=None):
@@ -70,8 +73,18 @@ class ServerLog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.voice_since = {}   # 멤버 ID -> 지금 음성채널에 들어온 시각 (머문 시간용, 재시작 시 초기화)
-        self.files = OrderedDict()   # 메시지 ID -> [(파일명, bytes, spoiler)]
+        self.files = OrderedDict()   # 메시지 ID -> [(파일명, 디스크 경로, 크기, spoiler)]
         self.files_size = 0
+        shutil.rmtree(STORE_DIR, ignore_errors=True)   # 재시작 전 파일은 어느 메시지 건지 모르니 비움
+        os.makedirs(STORE_DIR, exist_ok=True)
+
+    def _drop(self, saved):
+        for _fn, path, size, _sp in saved:
+            self.files_size -= size
+            try:
+                os.remove(path)
+            except OSError:
+                pass
 
     async def _send(self, embed, files=None):
         try:
@@ -106,20 +119,22 @@ class ServerLog(commands.Cog):
         if message.channel.id != DELETE_WATCH_CHANNEL_ID or message.author.bot or not message.attachments:
             return
         saved = []
-        for a in message.attachments[:10]:
+        for i, a in enumerate(message.attachments[:10]):
             if a.size > FILE_MAX:
                 continue
+            path = os.path.join(STORE_DIR, f'{message.id}_{i}')
             try:
-                saved.append((a.filename, await a.read(), a.is_spoiler()))
+                await a.save(path)   # 바로 디스크에 씀 (메모리에 들고 있지 않음)
+                saved.append((a.filename, path, a.size, a.is_spoiler()))
             except Exception as e:
                 print(f'[serverlog] 첨부 보관 실패({a.filename}): {e}')
         if not saved:
             return
         self.files[message.id] = saved
-        self.files_size += sum(len(b) for _, b, _ in saved)
+        self.files_size += sum(x[2] for x in saved)
         while self.files_size > STORE_MAX and self.files:
             _mid, old = self.files.popitem(last=False)
-            self.files_size -= sum(len(b) for _, b, _ in old)
+            self._drop(old)
 
     # ── 메시지 삭제 (지정 채널) ─────────────────────────────
     @commands.Cog.listener()
@@ -127,7 +142,12 @@ class ServerLog(commands.Cog):
         if payload.channel_id != DELETE_WATCH_CHANNEL_ID:
             return
         kept = self.files.pop(payload.message_id, None) or []
-        self.files_size -= sum(len(b) for _, b, _ in kept)
+        try:
+            await self._log_delete(payload, kept)
+        finally:
+            self._drop(kept)   # 올렸든 못 올렸든 디스크에서 지움
+
+    async def _log_delete(self, payload, kept):
         msg = payload.cached_message
         if msg is not None and msg.author.bot:
             return   # 봇 메시지(안내 카드 등)는 기록 안 함
@@ -142,14 +162,14 @@ class ServerLog(commands.Cog):
         body = '\n'.join(f'> {ln}' for ln in content.split('\n')) if content else '> (글 내용 없음)'
         files = []
         if msg.attachments:
-            have = {fn for fn, _, _ in kept}
+            have = {x[0] for x in kept}
             lines = []
             for a in msg.attachments[:10]:
                 note = '' if a.filename in have else (' (용량이 커서 보관 못 함)' if a.size > FILE_MAX
                                                       else ' (보관 못 함)')
                 lines.append(f'- {discord.utils.escape_markdown(a.filename)}{note}')
             body += '\n**첨부**' + (' — 아래 파일로 다시 올렸어요' if kept else '') + '\n' + '\n'.join(lines)
-            files = [discord.File(io.BytesIO(b), filename=fn, spoiler=sp) for fn, b, sp in kept]
+            files = [discord.File(path, filename=fn, spoiler=sp) for fn, path, _sz, sp in kept]   # 디스크에서 바로 올림
         await self._send(_embed(msg.author, C_DELETE,
                                 f'🗑️ {_who(msg.author)} 님의 메시지가 삭제됐어요 {where}\n**내용**\n{body}',
                                 footer=f'작성 {_hm(msg.created_at)}'), files=files)

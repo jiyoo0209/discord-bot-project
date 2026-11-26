@@ -50,3 +50,5 @@ $RECYCLE.BIN/
 
 # Windows shortcuts
 *.lnk
+# 서버 로그 — 삭제 감시용 첨부 임시 보관
+serverlog/_deleted_cache/
