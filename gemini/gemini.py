@@ -22,6 +22,7 @@ from util.dates import KST
 
 CHAT_CHANNEL_ID = 1575334446092128337            # 이 채널에 올라온 글에 대답
 MODEL = os.getenv('GEMINI_MODEL') or 'gemini-flash-latest'   # 별칭 — 모델이 바뀌어도 최신 Flash 로 따라감
+FALLBACK = 'gemini-flash-lite-latest'   # 기본 모델이 붐비면(503) 대신 쓰는 가벼운 모델
 API = 'https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent'
 MAX_TURNS = 20          # 기억하는 대화 수 (질문+답 합쳐서)
 IDLE_MIN = 30           # 이 시간 동안 대화가 없으면 기억 비움
@@ -109,12 +110,22 @@ class GeminiChat(commands.Cog):
             await self.session.close()
 
     async def _ask(self, contents):
+        '''붐빔(500/503)이면 2초 뒤 한 번 더, 그래도 안 되면 가벼운 모델로 시도'''
+        status, data = await self._post(MODEL, contents)
+        if status in (500, 503):
+            await asyncio.sleep(2)
+            status, data = await self._post(MODEL, contents)
+        if status in (500, 503) and FALLBACK != MODEL:
+            status, data = await self._post(FALLBACK, contents)
+        return status, data
+
+    async def _post(self, model, contents):
         body = {
             'systemInstruction': {'parts': [{'text': PERSONAS[PERSONA] + '\n' + RULES}]},
             'contents': contents,
             'generationConfig': {'maxOutputTokens': 4096, 'temperature': 0.8},
         }
-        async with self.session.post(API.format(MODEL), json=body,
+        async with self.session.post(API.format(model), json=body,
                                      headers={'x-goog-api-key': self.key}) as r:
             data = await r.json(content_type=None)
             return r.status, data
@@ -153,6 +164,10 @@ class GeminiChat(commands.Cog):
             if status == 429:
                 self.blocked_until = _reset_time(data)
                 await self._reply(message, f'사용 한도가 초과되었습니다! {_kst_text(self.blocked_until)}에 사용 가능합니다!')
+                return
+            if status in (500, 503):
+                print(f'[gemini] 붐빔 {status} (재시도·대체 모델도 실패)')
+                await self._reply(message, '헉 지금 제미나이가 사람이 너무 많아서 바쁘대 ㅠㅠ 1~2분 뒤에 다시 말 걸어줘!!')
                 return
             if status != 200:
                 print(f'[gemini] 오류 {status}: {str(data)[:300]}')
