@@ -55,6 +55,7 @@ async def main():
         await bot.load_extension('notice.notice')
         await bot.load_extension('fishing.fishing')
         await bot.load_extension('yearend.yearend')
+        await bot.load_extension('gemini.gemini')
         # 나중에 다른 파일도 이렇게 추가
 
         # bot 실행
